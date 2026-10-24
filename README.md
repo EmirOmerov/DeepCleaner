@@ -8,8 +8,8 @@ A Windows 11 cleaner with four modules: deep uninstall, large files, safe cache 
 |---|---|
 | 0. Safety core: PathGuard, quarantine (30 days), action history | ✅ |
 | 3. Windows cache, whitelist only | ✅ |
-| 2. Large files | ⏳ next |
-| 1. Deep uninstall + leftovers | ⏳ |
+| 2. Large files: treemap, filters, quarantine | ✅ |
+| 1. Deep uninstall + leftovers | ⏳ next |
 | 4. Similar images (better/worse) | ⏳ |
 
 ## Running

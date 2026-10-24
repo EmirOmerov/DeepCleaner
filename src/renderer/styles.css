@@ -170,6 +170,31 @@ h2 { font: 600 18px var(--font-display); }
 .protected li { font: 12.5px var(--font-mono); color: var(--lock); }
 .protected li::before { content: "🔒 "; }
 
+/* ---------- Large files ---------- */
+button.chip { cursor: pointer; transition: border-color .15s; }
+button.chip:hover { border-color: var(--cyan); }
+.chip .x { margin-left: 4px; color: var(--muted); font-size: 14px; line-height: 1; }
+.chip .x:hover { color: var(--red); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.btn.sm { padding: 4px 8px; font-size: 13px; }
+.lf-setup { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.lf-setup .row { display: flex; gap: 14px; align-items: center; }
+.lf-setup .lbl { width: 80px; flex-shrink: 0; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.filters { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.treemap { display: flex; gap: 4px; height: 96px; margin-bottom: 16px; overflow: hidden; }
+.tile {
+  flex-basis: 0; min-width: 56px; flex-grow: 1; border-radius: 6px; padding: 8px;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; overflow: hidden; text-align: left;
+  background: color-mix(in srgb, var(--c) 28%, transparent); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+  transition: background .15s, box-shadow .15s;
+}
+.tile span { font-size: 11px; color: #d6e2ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tile b { font-size: 12.5px; }
+.tile:hover { background: color-mix(in srgb, var(--c) 42%, transparent); }
+.tile.sel { outline: 2px solid var(--c); box-shadow: 0 0 18px color-mix(in srgb, var(--c) 50%, transparent); }
+.tile.locked { opacity: .45; cursor: not-allowed; }
+.t-lf .tr { grid-template-columns: 22px minmax(0, 1fr) auto 90px 40px; }
+
 /* ---------- Quarantine & history ---------- */
 .t-q .tr { grid-template-columns: 22px minmax(0, 1fr) 110px 96px 140px; }
 .t-h .tr { grid-template-columns: 150px 140px 110px 80px 96px 80px; }

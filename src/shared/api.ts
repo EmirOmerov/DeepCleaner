@@ -3,10 +3,11 @@
  * The renderer never sees Node APIs — only this surface, via contextBridge.
  */
 import type { CleanReport, TargetScan } from '../core/cache/cacheCleaner';
+import type { FileCategory, LargeFile, ScanProgress } from '../core/largefiles/largeFiles';
 import type { HistoryEntry } from '../core/quarantine/history';
 import type { OpResult, QuarantineItem } from '../core/quarantine/quarantine';
 
-export type { CleanReport, HistoryEntry, OpResult, QuarantineItem, TargetScan };
+export type { CleanReport, FileCategory, HistoryEntry, LargeFile, OpResult, QuarantineItem, ScanProgress, TargetScan };
 
 export interface DiskUsage {
   drive: string;
@@ -28,6 +29,18 @@ export interface DeepCleanerApi {
     scan(): Promise<TargetScan[]>;
     clean(ids: string[]): Promise<CleanReport>;
   };
+  largeFiles: {
+    defaultRoots(): Promise<string[]>;
+    pickFolder(): Promise<string | null>;
+    scan(roots: string[], minBytes: number): Promise<LargeFile[]>;
+    cancel(): Promise<void>;
+    /** Subscribe to scan progress; returns an unsubscribe function. */
+    onProgress(cb: (p: ScanProgress) => void): () => void;
+    /** Only paths from the last scan are accepted; others are reported as failed. */
+    quarantine(paths: string[]): Promise<OpResult>;
+    deletePermanently(paths: string[]): Promise<OpResult>;
+    reveal(path: string): Promise<void>;
+  };
   quarantine: {
     list(): Promise<QuarantineItem[]>;
     restore(ids: string[]): Promise<OpResult>;
@@ -43,6 +56,14 @@ export const IPC = {
   systemInfo: 'system:info',
   cacheScan: 'cache:scan',
   cacheClean: 'cache:clean',
+  lfDefaultRoots: 'largefiles:default-roots',
+  lfPickFolder: 'largefiles:pick-folder',
+  lfScan: 'largefiles:scan',
+  lfCancel: 'largefiles:cancel',
+  lfProgress: 'largefiles:progress',
+  lfQuarantine: 'largefiles:quarantine',
+  lfDelete: 'largefiles:delete',
+  lfReveal: 'largefiles:reveal',
   quarantineList: 'quarantine:list',
   quarantineRestore: 'quarantine:restore',
   quarantineRemove: 'quarantine:remove',

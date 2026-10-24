@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { CacheCleaner } from '../core/cache/cacheCleaner';
 import { defaultCacheTargets } from '../core/cache/cacheTargets';
+import { defaultScanRoots, LargeFileScanner } from '../core/largefiles/largeFiles';
 import { HistoryLog } from '../core/quarantine/history';
 import { Quarantine } from '../core/quarantine/quarantine';
 import { createPathGuard, defaultGuardConfig } from '../core/safety/pathGuard';
@@ -19,6 +20,10 @@ const guard = createPathGuard(defaultGuardConfig(process.env, [dataDir]));
 const history = new HistoryLog(path.join(dataDir, 'history.jsonl'));
 const quarantine = new Quarantine({ vaultDir, guard, history, retentionDays: 30 });
 const cache = new CacheCleaner(defaultCacheTargets(process.env), guard, history);
+const largeFiles = new LargeFileScanner();
+let largeFilesScan: AbortController | null = null;
+
+const MIN_LARGE_FILE = 10 * 1024 * 1024;
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -42,6 +47,25 @@ function stringArray(value: unknown): string[] {
   return value as string[];
 }
 
+function absolutePaths(value: unknown): string[] {
+  const paths = stringArray(value);
+  if (!paths.every((p) => path.win32.isAbsolute(p) && /^[a-zA-Z]:\\/.test(p))) {
+    throw new Error('expected absolute local paths');
+  }
+  return paths;
+}
+
+/** Paths not from the last large-file scan (or locked) are refused before reaching the guard. */
+async function largeFilesRemove(value: unknown, permanent: boolean) {
+  const { known, rejected } = largeFiles.filterKnown(stringArray(value));
+  const r = permanent
+    ? await quarantine.deletePermanently(known, 'largefiles')
+    : await quarantine.quarantine(known, 'largefiles');
+  largeFiles.forget(r.done.map((d) => d.path));
+  r.failed.push(...rejected.map((p) => ({ path: p, reason: 'not from the last scan, or locked' })));
+  return r;
+}
+
 // --- IPC ---------------------------------------------------------------------
 
 function registerIpc() {
@@ -52,6 +76,34 @@ function registerIpc() {
   }));
   ipcMain.handle(IPC.cacheScan, () => cache.scan());
   ipcMain.handle(IPC.cacheClean, (_e, ids: unknown) => cache.clean(stringArray(ids)));
+  ipcMain.handle(IPC.lfDefaultRoots, () => defaultScanRoots(process.env));
+  ipcMain.handle(IPC.lfPickFolder, async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Odaberi folder za skeniranje' });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle(IPC.lfScan, async (e, roots: unknown, minBytes: unknown) => {
+    largeFilesScan?.abort();
+    const ac = (largeFilesScan = new AbortController());
+    const min = Math.max(MIN_LARGE_FILE, Number(minBytes) || 0);
+    try {
+      return await largeFiles.scan({
+        roots: absolutePaths(roots),
+        minBytes: min,
+        signal: ac.signal,
+        onProgress: (p) => !e.sender.isDestroyed() && e.sender.send(IPC.lfProgress, p),
+      });
+    } finally {
+      if (largeFilesScan === ac) largeFilesScan = null;
+    }
+  });
+  ipcMain.handle(IPC.lfCancel, () => largeFilesScan?.abort());
+  ipcMain.handle(IPC.lfQuarantine, (_e, paths: unknown) => largeFilesRemove(paths, false));
+  ipcMain.handle(IPC.lfDelete, (_e, paths: unknown) => largeFilesRemove(paths, true));
+  ipcMain.handle(IPC.lfReveal, (_e, p: unknown) => {
+    const hit = typeof p === 'string' ? largeFiles.find(p) : undefined;
+    if (hit) shell.showItemInFolder(hit.path);
+  });
   ipcMain.handle(IPC.quarantineList, () => quarantine.list());
   ipcMain.handle(IPC.quarantineRestore, (_e, ids: unknown) => quarantine.restore(stringArray(ids)));
   ipcMain.handle(IPC.quarantineRemove, (_e, ids: unknown) => quarantine.remove(stringArray(ids)));

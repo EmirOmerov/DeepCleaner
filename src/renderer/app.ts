@@ -1,7 +1,9 @@
 import type {
   CleanReport,
   DeepCleanerApi,
+  FileCategory,
   HistoryEntry,
+  LargeFile,
   OpResult,
   QuarantineItem,
   SystemInfo,
@@ -28,7 +30,30 @@ const state = {
   quarantine: [] as QuarantineItem[],
   qSel: new Set<string>(),
   history: [] as HistoryEntry[],
+  lf: {
+    roots: [] as string[],
+    minBytes: 500 * 1024 ** 2,
+    files: null as LargeFile[] | null,
+    scanning: false,
+    progress: { scannedFiles: 0, found: 0 },
+    sel: new Set<string>(),
+    cats: new Set<FileCategory>(),
+    olderThanDays: 0,
+  },
 };
+
+const CATEGORY: Record<FileCategory, [label: string, color: string]> = {
+  video: ['Video', '#ff3dbb'],
+  'disk-image': ['ISO / diskovi', '#22e3ff'],
+  archive: ['Arhive', '#7b8cff'],
+  installer: ['Instalacije', '#ffb547'],
+  document: ['Dokumenti', '#8cff6b'],
+  image: ['Slike', '#ff8a5c'],
+  audio: ['Audio', '#c38bff'],
+  other: ['Ostalo', '#6f7fa8'],
+};
+const MIN_SIZES = [100, 500, 1024, 5120].map((mb) => mb * 1024 ** 2);
+const DAY_MS = 86_400_000;
 
 const viewEl = document.getElementById('view')!;
 const ACTION_LABEL: Record<string, string> = {
@@ -175,12 +200,17 @@ function renderDashboard() {
           <b>${state.cache ? fmt(reclaim) : '—'}</b>
           <span class="muted">Samo sigurne lokacije. Sistem se ne dira.</span>
         </button>
+        <button class="panel mod" data-go="largefiles">
+          <div class="t">Veliki fajlovi <span>${state.lf.files ? `${state.lf.files.length} fajlova` : 'nije skenirano'}</span></div>
+          <b>${state.lf.files ? fmt(state.lf.files.reduce((s, f) => s + f.size, 0)) : '—'}</b>
+          <span class="muted">Najveći fajlovi na svim diskovima</span>
+        </button>
         <button class="panel mod" data-go="quarantine">
           <div class="t">Karantin <span>30 dana</span></div>
           <b>${fmt(qBytes)}</b>
           <span class="muted">${state.quarantine.length} stavki se može vratiti</span>
         </button>
-        ${['Programi', 'Veliki fajlovi', 'Slike']
+        ${['Programi', 'Slike']
           .map((m) => `<div class="panel mod soon"><div class="t">${m} <span>uskoro</span></div><b>U izradi</b><span class="muted">Sljedeći modul</span></div>`)
           .join('')}
       </div>
@@ -303,9 +333,166 @@ function renderHistory() {
     </div>`;
 }
 
+function visibleLargeFiles(): LargeFile[] {
+  const { files, cats, olderThanDays } = state.lf;
+  if (!files) return [];
+  const cutoff = Date.now() - olderThanDays * DAY_MS;
+  return files.filter((f) => (!cats.size || cats.has(f.category)) && (!olderThanDays || f.mtimeMs < cutoff));
+}
+
+function ageLabel(mtimeMs: number) {
+  const days = Math.floor((Date.now() - mtimeMs) / DAY_MS);
+  if (days < 1) return 'danas';
+  if (days < 30) return `prije ${days} d`;
+  if (days < 365) return `prije ${Math.floor(days / 30)} mj.`;
+  return `prije ${(days / 365).toFixed(1)} god.`;
+}
+
+function renderLargeFiles() {
+  const lf = state.lf;
+  const rootChips = lf.roots
+    .map((r) => `<span class="chip cyan mono">${esc(r)} <button class="x" data-lf-root="${esc(r)}" aria-label="Ukloni ${esc(r)}">×</button></span>`)
+    .join('');
+  const sizeChips = MIN_SIZES.map(
+    (b) => `<button class="chip ${lf.minBytes === b ? 'cyan' : ''}" data-lf-min="${b}">&gt; ${fmt(b)}</button>`,
+  ).join('');
+  const setup = `
+    <div class="panel lf-setup">
+      <div class="row"><span class="lbl">Lokacije</span><div class="chips">${rootChips}<button class="chip" data-act="lf-add">+ Dodaj folder</button></div></div>
+      <div class="row"><span class="lbl">Veće od</span><div class="chips">${sizeChips}</div></div>
+    </div>`;
+
+  const title = head('Veliki fajlovi', 'Vidi gdje <span class="grad">nestaje prostor</span>',
+    lf.scanning
+      ? '<button class="btn ghost" data-act="lf-cancel">Otkaži</button>'
+      : `<button class="btn primary" data-act="lf-scan" ${lf.roots.length ? '' : 'disabled'}>${lf.files ? 'Skeniraj ponovo' : 'Skeniraj'}</button>`);
+
+  if (lf.scanning) {
+    return `${title}${setup}<div class="scanning"><div class="radar"></div>
+      <span>Pregledano <b class="mono" id="lf-count">${lf.progress.scannedFiles.toLocaleString('bs')}</b> fajlova · pronađeno <b class="mono" id="lf-found">${lf.progress.found}</b></span></div>`;
+  }
+  if (!lf.files) {
+    return `${title}${setup}<div class="empty"><h2>Još nije skenirano</h2><p>Skeniranje samo čita veličine. Windows, Program Files i AppData se preskaču.</p></div>`;
+  }
+  if (!lf.files.length) {
+    return `${title}${setup}<div class="empty"><h2>Nema fajlova većih od ${fmt(lf.minBytes)}</h2><p>Probaj manji prag ili dodaj drugi folder.</p></div>`;
+  }
+
+  // Category filter chips with totals
+  const totals = new Map<FileCategory, number>();
+  for (const f of lf.files) totals.set(f.category, (totals.get(f.category) ?? 0) + f.size);
+  const catChips = [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, bytes]) => `<button class="chip ${lf.cats.has(c) ? 'cyan' : ''}" data-lf-cat="${c}"><i class="dot" style="background:${CATEGORY[c][1]}"></i>${CATEGORY[c][0]} · ${fmt(bytes)}</button>`)
+    .join('');
+  const ageChips = [[0, 'Bilo kada'], [180, 'Starije od 6 mj.'], [365, 'Starije od 1 god.']]
+    .map(([d, l]) => `<button class="chip ${lf.olderThanDays === d ? 'cyan' : ''}" data-lf-age="${d}">${l}</button>`)
+    .join('');
+
+  const visible = visibleLargeFiles();
+  const visTotal = visible.reduce((s, f) => s + f.size, 0) || 1;
+  const tiles = visible
+    .slice(0, 14)
+    .map((f) => {
+      const name = f.path.split('\\').pop()!;
+      const sel = lf.sel.has(f.path) ? 'sel' : '';
+      return `<button class="tile ${sel} ${f.locked ? 'locked' : ''}" data-lf-tile="${esc(f.path)}" title="${esc(f.path)}"
+        style="flex-grow:${Math.max(1, Math.round((f.size / visTotal) * 1000))};--c:${CATEGORY[f.category][1]}">
+        <b class="mono">${fmt(f.size)}</b><span>${esc(name)}</span></button>`;
+    })
+    .join('');
+
+  const rows = visible
+    .map((f) => {
+      const name = f.path.split('\\').pop()!;
+      const folder = f.path.slice(0, f.path.length - name.length - 1);
+      const checked = lf.sel.has(f.path) ? 'checked' : '';
+      return `
+        <label class="tr ${checked ? 'sel' : ''}">
+          <input type="checkbox" class="cb" data-lf="${esc(f.path)}" ${checked} ${f.locked ? 'disabled' : ''}>
+          <span class="name"><b class="selectable">${esc(name)}</b><small class="mono selectable" title="${esc(folder)}">${esc(folder)} · ${ageLabel(f.mtimeMs)}</small></span>
+          <span class="chips">${f.locked ? '<span class="chip warn">U upotrebi</span>' : ''}<span class="chip"><i class="dot" style="background:${CATEGORY[f.category][1]}"></i>${CATEGORY[f.category][0]}</span></span>
+          <span class="num">${fmt(f.size)}</span>
+          <button class="btn ghost sm" data-lf-reveal="${esc(f.path)}" title="Otvori lokaciju">📂</button>
+        </label>`;
+    })
+    .join('');
+
+  const selected = visible.filter((f) => lf.sel.has(f.path));
+  const selBytes = selected.reduce((s, f) => s + f.size, 0);
+  return `${title}${setup}
+    <div class="filters"><div class="chips">${catChips}</div><div class="chips">${ageChips}</div></div>
+    <div class="treemap" aria-label="Najveći fajlovi">${tiles}</div>
+    <div class="tbl t-lf">
+      <div class="tr head"><span></span><span>Fajl · ${visible.length}</span><span></span><span class="num">Veličina</span><span></span></div>
+      ${rows || '<div class="empty">Nijedan fajl ne odgovara filterima.</div>'}
+    </div>
+    <div class="action-bar">
+      <span class="sum muted">${selected.length} odabrano · <b>${fmt(selBytes)}</b></span>
+      <div class="btns">
+        <button class="btn red" data-act="lf-delete" ${selected.length ? '' : 'disabled'}>Trajno obriši</button>
+        <button class="btn danger" data-act="lf-quarantine" ${selected.length ? '' : 'disabled'}>U karantin</button>
+      </div>
+    </div>`;
+}
+
+async function scanLargeFiles() {
+  const lf = state.lf;
+  lf.scanning = true;
+  lf.progress = { scannedFiles: 0, found: 0 };
+  render();
+  const off = api.largeFiles.onProgress((p) => {
+    lf.progress = p;
+    // Update counters in place instead of re-rendering the whole view.
+    const c = document.getElementById('lf-count');
+    const f = document.getElementById('lf-found');
+    if (c) c.textContent = p.scannedFiles.toLocaleString('bs');
+    if (f) f.textContent = String(p.found);
+  });
+  try {
+    lf.files = await api.largeFiles.scan(lf.roots, lf.minBytes);
+    lf.sel.clear();
+  } catch (err) {
+    toast('Skeniranje nije uspjelo: ' + (err as Error).message, true);
+  } finally {
+    off();
+    lf.scanning = false;
+    render();
+  }
+}
+
+async function removeLargeFiles(permanent: boolean) {
+  const selected = visibleLargeFiles().filter((f) => state.lf.sel.has(f.path));
+  const bytes = selected.reduce((s, f) => s + f.size, 0);
+  const list = `<ul>${selected.slice(0, 6).map((f) => `<li class="mono">${esc(f.path.split('\\').pop()!)}: ${fmt(f.size)}</li>`).join('')}${selected.length > 6 ? `<li>… i još ${selected.length - 6}</li>` : ''}</ul>`;
+  const ok = await modal(
+    permanent
+      ? { title: `Trajno obrisati ${selected.length} fajlova?`, body: `<p>Ovo je <b>nepovratno</b>. ${fmt(bytes)} se oslobađa odmah.</p>${list}`, confirm: 'Trajno obriši', kind: 'red' }
+      : { title: `Premjestiti ${selected.length} fajlova u karantin?`, body: `<p>Fajlovi se čuvaju 30 dana i mogu se vratiti iz Karantina.</p>${list}<p class="muted">Napomena: prostor se oslobađa tek kad se karantin isprazni ili istekne.</p>`, confirm: 'U karantin', kind: 'danger' },
+  );
+  if (!ok) return;
+  const paths = selected.map((f) => f.path);
+  let r: OpResult;
+  try {
+    r = permanent ? await api.largeFiles.deletePermanently(paths) : await api.largeFiles.quarantine(paths);
+  } catch (err) {
+    toast((err as Error).message, true);
+    return;
+  }
+  const gone = new Set(r.done.map((d) => d.path.toLowerCase()));
+  state.lf.files = state.lf.files!.filter((f) => !gone.has(f.path.toLowerCase()));
+  state.lf.sel.clear();
+  if (r.failed.length) {
+    await modal({ title: `Uklonjeno ${r.done.length} od ${paths.length}`, body: failureList(r.failed), confirm: 'U redu', cancel: null });
+  } else {
+    toast(permanent ? `✓ Trajno obrisano ${fmt(r.bytes)}` : `✓ ${r.done.length} fajlova u karantinu`);
+  }
+  await Promise.all([refreshQuarantine(), refreshInfo()]);
+  render();
+}
+
 const SOON: Record<string, [string, string]> = {
   programs: ['Programi', 'Duboka deinstalacija: originalni uninstaller, zatim pregled ostataka (fajlovi, registar, servisi) sa nivoom rizika.'],
-  largefiles: ['Veliki fajlovi', 'Treemap i lista najvećih fajlova, filteri po tipu i starosti, uklanjanje u karantin.'],
   images: ['Slike', 'Grupisanje sličnih slika, ocjena kvaliteta: BOLJA ostaje, LOŠIJE se mogu ukloniti.'],
 };
 
@@ -325,7 +512,7 @@ function render() {
     quarantine: renderQuarantine,
     history: renderHistory,
     programs: () => renderSoon('programs'),
-    largefiles: () => renderSoon('largefiles'),
+    largefiles: renderLargeFiles,
     images: () => renderSoon('images'),
   };
   viewEl.innerHTML = html[state.view]();
@@ -423,12 +610,53 @@ document.getElementById('nav')!.addEventListener('click', (e) => {
   if (b && !state.busy) void go(b.dataset.view as View);
 });
 
+/** Large-files controls that just tweak state and re-render. */
+function handleLargeFilesClick(t: HTMLElement, e: Event): boolean {
+  const lf = state.lf;
+  const el = t.closest<HTMLElement>('[data-lf-root],[data-lf-min],[data-lf-cat],[data-lf-age],[data-lf-tile],[data-lf-reveal]');
+  if (!el) return false;
+  const d = el.dataset;
+  if (d.lfReveal) {
+    e.preventDefault(); // don't toggle the row checkbox
+    void api.largeFiles.reveal(d.lfReveal);
+    return true;
+  }
+  if (lf.scanning) return true;
+  if (d.lfRoot) lf.roots = lf.roots.filter((r) => r !== d.lfRoot);
+  else if (d.lfMin) lf.minBytes = Number(d.lfMin);
+  else if (d.lfCat) {
+    const c = d.lfCat as FileCategory;
+    if (lf.cats.has(c)) lf.cats.delete(c);
+    else lf.cats.add(c);
+  } else if (d.lfAge) lf.olderThanDays = Number(d.lfAge);
+  else if (d.lfTile) {
+    const f = lf.files?.find((x) => x.path === d.lfTile);
+    if (f && !f.locked) {
+      if (lf.sel.has(f.path)) lf.sel.delete(f.path);
+      else lf.sel.add(f.path);
+    }
+  }
+  render();
+  return true;
+}
+
 viewEl.addEventListener('click', (e) => {
   const t = e.target as HTMLElement;
   const goBtn = t.closest<HTMLElement>('[data-go]');
   if (goBtn) return void go(goBtn.dataset.go as View);
+  if (handleLargeFilesClick(t, e)) return;
   const act = t.closest<HTMLElement>('[data-act]')?.dataset.act;
-  if (!act || state.busy) return;
+  if (act === 'lf-cancel') return void api.largeFiles.cancel();
+  if (!act || state.busy || state.lf.scanning) return;
+  if (act === 'lf-scan') void scanLargeFiles();
+  if (act === 'lf-add') {
+    void api.largeFiles.pickFolder().then((p) => {
+      if (p && !state.lf.roots.some((r) => r.toLowerCase() === p.toLowerCase())) state.lf.roots.push(p);
+      render();
+    });
+  }
+  if (act === 'lf-quarantine') void removeLargeFiles(false);
+  if (act === 'lf-delete') void removeLargeFiles(true);
   if (act === 'scan') void scanCache();
   if (act === 'scan-go') void go('cache').then(scanCache);
   if (act === 'clean') void cleanCache();
@@ -438,8 +666,9 @@ viewEl.addEventListener('click', (e) => {
 
 viewEl.addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
-  const setFor = input.dataset.cache ? state.cacheSel : input.dataset.q ? state.qSel : null;
-  const id = input.dataset.cache ?? input.dataset.q;
+  const d = input.dataset;
+  const setFor = d.cache ? state.cacheSel : d.q ? state.qSel : d.lf ? state.lf.sel : null;
+  const id = d.cache ?? d.q ?? d.lf;
   if (!setFor || !id) return;
   if (input.checked) setFor.add(id);
   else setFor.delete(id);
@@ -450,6 +679,7 @@ viewEl.addEventListener('change', (e) => {
 
 (async () => {
   render();
-  await Promise.all([refreshInfo(), refreshQuarantine()]);
+  const [roots] = await Promise.all([api.largeFiles.defaultRoots(), refreshInfo(), refreshQuarantine()]);
+  state.lf.roots = roots;
   render();
 })();
