@@ -24,6 +24,20 @@ const api: DeepCleanerApi = {
     deletePermanently: (paths) => ipcRenderer.invoke(IPC.lfDelete, paths),
     reveal: (p) => ipcRenderer.invoke(IPC.lfReveal, p),
   },
+  images: {
+    defaultRoots: () => ipcRenderer.invoke(IPC.imgDefaultRoots),
+    scan: (roots, minSimilarity) => ipcRenderer.invoke(IPC.imgScan, roots, minSimilarity),
+    regroup: (minSimilarity) => ipcRenderer.invoke(IPC.imgRegroup, minSimilarity),
+    cancel: () => ipcRenderer.invoke(IPC.imgCancel),
+    onProgress: (cb) => {
+      const listener = (_e: unknown, p: Parameters<typeof cb>[0]) => cb(p);
+      ipcRenderer.on(IPC.imgProgress, listener);
+      return () => ipcRenderer.removeListener(IPC.imgProgress, listener);
+    },
+    preview: (p, maxSize) => ipcRenderer.invoke(IPC.imgPreview, p, maxSize),
+    quarantine: (paths) => ipcRenderer.invoke(IPC.imgQuarantine, paths),
+    reveal: (p) => ipcRenderer.invoke(IPC.imgReveal, p),
+  },
   programs: {
     list: () => ipcRenderer.invoke(IPC.programsList),
     uninstall: (id) => ipcRenderer.invoke(IPC.programsUninstall, id),

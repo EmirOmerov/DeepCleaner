@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { CacheCleaner } from '../core/cache/cacheCleaner';
 import { defaultCacheTargets } from '../core/cache/cacheTargets';
 import { pathSize } from '../core/fsutil';
+import { ImageScanner } from '../core/images/imageScanner';
 import { defaultScanRoots, LargeFileScanner } from '../core/largefiles/largeFiles';
 import { HistoryLog } from '../core/quarantine/history';
 import { Quarantine, type OpResult } from '../core/quarantine/quarantine';
@@ -28,6 +29,32 @@ const largeFiles = new LargeFileScanner();
 let largeFilesScan: AbortController | null = null;
 
 const MIN_LARGE_FILE = 10 * 1024 * 1024;
+
+const images = new ImageScanner();
+let imageScan: AbortController | null = null;
+
+/** Pictures, Desktop and Downloads (plus OneDrive Pictures when present). */
+function defaultImageRoots(): string[] {
+  const profile = process.env.USERPROFILE ?? app.getPath('home');
+  const candidates = [
+    app.getPath('pictures'),
+    app.getPath('desktop'),
+    app.getPath('downloads'),
+    path.join(profile, 'OneDrive', 'Pictures'),
+  ];
+  const seen = new Set<string>();
+  return candidates.filter((p) => {
+    const k = p.toLowerCase();
+    if (seen.has(k) || !fs.existsSync(p)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+function similarityArg(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0.5, n)) : 0.9;
+}
 
 // Deep uninstall state: the last program list, and the last leftover scan per program.
 let programs = new Map<string, InstalledProgram>();
@@ -176,6 +203,37 @@ function registerIpc() {
   ipcMain.handle(IPC.lfReveal, (_e, p: unknown) => {
     const hit = typeof p === 'string' ? largeFiles.find(p) : undefined;
     if (hit) shell.showItemInFolder(hit.path);
+  });
+  ipcMain.handle(IPC.imgDefaultRoots, () => defaultImageRoots());
+  ipcMain.handle(IPC.imgScan, async (e, roots: unknown, minSimilarity: unknown) => {
+    imageScan?.abort();
+    const ac = (imageScan = new AbortController());
+    try {
+      return await images.scan({
+        roots: absolutePaths(roots),
+        minSimilarity: similarityArg(minSimilarity),
+        signal: ac.signal,
+        onProgress: (p) => !e.sender.isDestroyed() && e.sender.send(IPC.imgProgress, p),
+      });
+    } finally {
+      if (imageScan === ac) imageScan = null;
+    }
+  });
+  ipcMain.handle(IPC.imgRegroup, (_e, minSimilarity: unknown) => images.regroup(similarityArg(minSimilarity)));
+  ipcMain.handle(IPC.imgCancel, () => imageScan?.abort());
+  ipcMain.handle(IPC.imgPreview, (_e, p: unknown, size: unknown) =>
+    typeof p === 'string' ? images.preview(p, Number(size) || 256).catch(() => null) : null,
+  );
+  ipcMain.handle(IPC.imgQuarantine, async (_e, paths: unknown) => {
+    const { known, rejected } = images.filterKnown(stringArray(paths));
+    const r = await quarantine.quarantine(known, 'images');
+    images.forget(r.done.map((d) => d.path));
+    r.failed.push(...rejected.map((p) => ({ path: p, reason: 'not from the last image scan' })));
+    return r;
+  });
+  ipcMain.handle(IPC.imgReveal, (_e, p: unknown) => {
+    const { known } = images.filterKnown(stringArray([p]));
+    if (known[0]) shell.showItemInFolder(known[0]);
   });
   ipcMain.handle(IPC.programsList, async () => {
     const list = parsePrograms(await listInstalledPrograms());

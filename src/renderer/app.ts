@@ -3,11 +3,14 @@ import type {
   DeepCleanerApi,
   FileCategory,
   HistoryEntry,
+  ImageGroup,
+  ImageMetrics,
   InstalledProgram,
   LargeFile,
   Leftover,
   OpResult,
   QuarantineItem,
+  ScoredImage,
   SystemInfo,
   TargetScan,
   UninstallOutcome,
@@ -42,6 +45,17 @@ const state = {
     sel: new Set<string>(),
     cats: new Set<FileCategory>(),
     olderThanDays: 0,
+  },
+  img: {
+    roots: [] as string[],
+    minSimilarity: 0.9,
+    groups: null as ImageGroup[] | null,
+    scanning: false,
+    progress: { found: 0, analyzed: 0 },
+    sel: new Set<string>(),
+    active: 0,
+    thumbs: new Map<string, string>(),
+    compare: null as { group: number; a: string; b: string } | null,
   },
   prog: {
     list: null as InstalledProgram[] | null,
@@ -236,7 +250,11 @@ function renderDashboard() {
           <b>${state.prog.list ? fmt(state.prog.list.reduce((s, p) => s + p.sizeBytes, 0)) : '—'}</b>
           <span class="muted">Deinstalacija + uklanjanje ostataka</span>
         </button>
-        <div class="panel mod soon"><div class="t">Slike <span>uskoro</span></div><b>U izradi</b><span class="muted">Sljedeći modul</span></div>
+        <button class="panel mod" data-go="images">
+          <div class="t">Slike <span>${state.img.groups ? `${state.img.groups.length} grupa` : 'slične slike'}</span></div>
+          <b>${state.img.groups ? fmt(state.img.groups.reduce((s, g) => s + g.reclaimable, 0)) : '—'}</b>
+          <span class="muted">Bolja ostaje, lošije se mogu ukloniti</span>
+        </button>
       </div>
     </div>`;
 }
@@ -745,15 +763,283 @@ async function finishWizard() {
   await loadPrograms();
 }
 
-const SOON: Record<string, [string, string]> = {
-  images: ['Slike', 'Grupisanje sličnih slika, ocjena kvaliteta: BOLJA ostaje, LOŠIJE se mogu ukloniti.'],
-};
+// ---------- Similar images ----------
 
-function renderSoon(v: string) {
-  const [title, desc] = SOON[v];
-  return `${head(title, `${title} <span class="grad">uskoro</span>`)}
-    <div class="empty"><h2>Modul je u izradi</h2><p>${esc(desc)}</p></div>`;
+const METRIC_LABEL: Array<[keyof ImageMetrics, string]> = [
+  ['resolution', 'Rezolucija'],
+  ['sharpness', 'Oštrina'],
+  ['quality', 'JPEG kvalitet'],
+  ['noise', 'Šum (manje = bolje)'],
+  ['exif', 'EXIF / original'],
+];
+
+const baseName = (p: string) => p.split('\\').pop() ?? p;
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+const mpx = (i: ScoredImage) => `${i.width}×${i.height}`;
+
+function thumb(path: string, cls = 'photo') {
+  const src = state.img.thumbs.get(path);
+  return `<div class="${cls}" data-thumb="${esc(path)}">${src ? `<img src="${src}" alt="">` : ''}</div>`;
 }
+
+/** Fetch previews that aren't cached yet and patch them into the DOM in place. */
+async function loadThumbs(paths: string[], size: number) {
+  for (const p of paths) {
+    const key = size > 400 ? `${p}|L` : p;
+    if (!state.img.thumbs.has(key)) {
+      const url = await api.images.preview(p, size);
+      if (!url) continue;
+      state.img.thumbs.set(key, url);
+    }
+    const url = state.img.thumbs.get(key)!;
+    document.querySelectorAll<HTMLElement>(`[data-thumb${size > 400 ? '-l' : ''}="${CSS.escape(p)}"]`).forEach((el) => {
+      if (!el.querySelector('img')) el.innerHTML = `<img src="${url}" alt="">`;
+    });
+  }
+}
+
+function renderImages() {
+  const im = state.img;
+  if (im.compare) return renderCompare();
+  const rootChips = im.roots
+    .map((r) => `<span class="chip cyan mono">${esc(r)} <button class="x" data-img-root="${esc(r)}" aria-label="Ukloni ${esc(r)}">×</button></span>`)
+    .join('');
+  const title = head('Skener slika', 'Slične slike, <span class="grad">najbolja ostaje</span>',
+    im.scanning
+      ? '<button class="btn ghost" data-act="img-cancel">Otkaži</button>'
+      : `<button class="btn primary" data-act="img-scan" ${im.roots.length ? '' : 'disabled'}>${im.groups ? 'Skeniraj ponovo' : 'Skeniraj'}</button>`);
+  const setup = `<div class="panel lf-setup"><div class="row"><span class="lbl">Folderi</span><div class="chips">${rootChips}<button class="chip" data-act="img-add">+ Dodaj folder</button></div></div></div>`;
+
+  if (im.scanning) {
+    return `${title}${setup}<div class="scanning"><div class="radar"></div>
+      <span>Pronađeno <b class="mono" id="img-found">${im.progress.found}</b> slika · analizirano <b class="mono" id="img-done">${im.progress.analyzed}</b></span></div>`;
+  }
+  if (!im.groups) {
+    return `${title}${setup}<div class="empty"><h2>Još nije skenirano</h2><p>Slike se grupišu po vizuelnoj sličnosti (perceptualni hash). Najbolja u grupi se bira po rezoluciji, oštrini, kvalitetu kompresije, šumu i EXIF podacima.</p></div>`;
+  }
+
+  const slider = `<div class="sim">
+      <div class="lbl">Prag sličnosti</div>
+      <input type="range" min="75" max="99" step="1" value="${Math.round(im.minSimilarity * 100)}" data-img-sim>
+      <div class="row-flex"><small class="muted">slično</small><b class="mono" id="sim-val">${Math.round(im.minSimilarity * 100)}%</b><small class="muted">identično</small></div>
+    </div>`;
+  if (!im.groups.length) {
+    return `${title}${setup}<div class="img-layout"><aside class="panel filters-col">${slider}</aside>
+      <div class="empty"><h2>Nema sličnih slika</h2><p>Probaj niži prag sličnosti ili dodaj druge foldere.</p></div></div>`;
+  }
+
+  im.active = Math.min(im.active, im.groups.length - 1);
+  const groupList = im.groups
+    .map((g, i) => `<button class="grp-item ${i === im.active ? 'on' : ''}" data-img-group="${i}">
+        <span>${esc(baseName(g.images[0].path))}</span><span class="mono">${g.images.length} · ${fmt(g.reclaimable)}</span></button>`)
+    .join('');
+
+  const g = im.groups[im.active];
+  const cards = g.images
+    .map((i) => {
+      const checked = im.sel.has(i.path) ? 'checked' : '';
+      return `<div class="thumb ${i.isBest ? 'best' : 'bad'} ${checked ? 'marked' : ''}">
+        <span class="badge ${i.isBest ? 'b' : 'l'}">${i.isBest ? '★ BOLJA' : 'LOŠIJA'}</span>
+        <input type="checkbox" class="cb" data-img="${esc(i.path)}" ${checked} title="Označi za uklanjanje">
+        ${thumb(i.path)}
+        <div class="meta"><span>${mpx(i)}</span><span>${fmt(i.bytes)}</span></div>
+        <div class="meta"><span class="ell" title="${esc(i.path)}">${esc(baseName(i.path))}</span></div>
+        <div class="score">Oštrina<div class="bar"><i style="width:${pct(i.metrics.sharpness)}"></i></div><b class="mono">${Math.round(i.metrics.sharpness * 100)}</b></div>
+        <div class="row-flex"><button class="btn ghost sm" data-img-compare="${esc(i.path)}" ${i.isBest ? 'disabled' : ''}>Uporedi</button><button class="btn ghost sm" data-img-reveal="${esc(i.path)}" title="Otvori lokaciju">📂</button></div>
+      </div>`;
+    })
+    .join('');
+
+  const selected = im.groups.flatMap((x) => x.images).filter((i) => im.sel.has(i.path));
+  return `${title}${setup}
+    <div class="img-layout">
+      <aside class="panel filters-col">${slider}<div class="lbl">Grupe · ${im.groups.length}</div><div class="grp-list">${groupList}</div></aside>
+      <section>
+        <div class="pane-title"><h2>Grupa ${im.active + 1} · ${esc(baseName(g.images[0].path))}</h2><span class="chip cyan">${pct(g.similarity)} sličnost</span></div>
+        <div class="imgs">${cards}</div>
+      </section>
+    </div>
+    <div class="action-bar">
+      <span class="sum muted">${selected.length} odabrano · <b>${fmt(selected.reduce((s, i) => s + i.bytes, 0))}</b></span>
+      <div class="btns">
+        <button class="btn ghost" data-act="img-auto">Auto-odaberi sve lošije</button>
+        <button class="btn danger" data-act="img-remove" ${selected.length ? '' : 'disabled'}>Ukloni odabrane (${selected.length})</button>
+      </div>
+    </div>`;
+}
+
+function renderCompare() {
+  const im = state.img;
+  const c = im.compare!;
+  const g = im.groups![c.group];
+  const a = g.images.find((i) => i.path === c.a)!;
+  const b = g.images.find((i) => i.path === c.b)!;
+  const raw: Array<[string, string, string, number]> = [
+    ['Rezolucija', `${(a.width * a.height / 1e6).toFixed(1)} MP`, `${(b.width * b.height / 1e6).toFixed(1)} MP`, Math.sign(a.metrics.resolution - b.metrics.resolution)],
+    ['Oštrina', String(Math.round(a.metrics.sharpness * 100)), String(Math.round(b.metrics.sharpness * 100)), Math.sign(a.metrics.sharpness - b.metrics.sharpness)],
+    ['JPEG kvalitet', a.jpegQuality ? `q${a.jpegQuality}` : 'bez gubitaka', b.jpegQuality ? `q${b.jpegQuality}` : 'bez gubitaka', Math.sign(a.metrics.quality - b.metrics.quality)],
+    ['Šum', a.noise.toFixed(1), b.noise.toFixed(1), Math.sign(a.metrics.noise - b.metrics.noise)],
+    ['EXIF', a.hasExif ? 'original' : 'nema', b.hasExif ? 'original' : 'nema', Math.sign(a.metrics.exif - b.metrics.exif)],
+    ['Veličina fajla', fmt(a.bytes), fmt(b.bytes), 0],
+  ];
+  // Values that look identical once formatted are a tie, whatever the raw numbers say.
+  for (const r of raw) if (r[1] === r[2]) r[3] = 0;
+  const wins = raw.filter((r) => r[3] > 0).length;
+  const rows = raw
+    .map(([k, va, vb, w]) => `<div class="tr"><span>${k}</span><span class="${w > 0 ? 'w' : w < 0 ? 'x' : ''}">${esc(va)}</span><span class="${w < 0 ? 'w' : w > 0 ? 'x' : ''}">${esc(vb)}</span></div>`)
+    .join('');
+  const large = (p: string) => {
+    const src = im.thumbs.get(`${p}|L`);
+    return `<div class="photo" data-thumb-l="${esc(p)}">${src ? `<img src="${src}" alt="">` : ''}</div>`;
+  };
+  return `${head('Poređenje', 'Zašto je jedna <span class="grad">bolja od druge</span>', '<button class="btn ghost" data-act="cmp-back">← Nazad</button>')}
+    <div class="cmp">
+      <div>
+        <div class="cmp-view" id="cmp-view" style="--pos:50%">
+          ${large(a.path)}
+          <div class="half">${large(b.path)}</div>
+          <div class="handle"></div>
+          <span class="tag l">★ ${esc(baseName(a.path))}</span><span class="tag r">${esc(baseName(b.path))}</span>
+        </div>
+        <input type="range" min="0" max="100" value="50" class="cmp-range" data-cmp-range aria-label="Klizač poređenja">
+        <div class="row-flex cmp-btns">
+          <button class="btn ghost" data-act="cmp-swap">⇄ Zamijeni izbor</button>
+          <button class="btn ghost" data-act="cmp-keep">Zadrži obje</button>
+          <button class="btn danger" data-act="cmp-delete" style="margin-left:auto">Ukloni lošiju</button>
+        </div>
+      </div>
+      <div>
+        <div class="tbl metrics"><div class="tr head"><span>Metrika</span><span>Lijevo (bolja)</span><span>Desno</span></div>${rows}</div>
+        <div class="verdict"><small class="muted">Preporuka</small><b>Zadrži lijevu</b><small class="muted">Pobjeđuje u ${wins} od 5 mjerenih metrika. Ocjena je heuristička, a odluka je tvoja.</small></div>
+      </div>
+    </div>`;
+}
+
+async function scanImages() {
+  const im = state.img;
+  im.scanning = true;
+  im.progress = { found: 0, analyzed: 0 };
+  render();
+  const off = api.images.onProgress((p) => {
+    im.progress = p;
+    const f = document.getElementById('img-found');
+    const d = document.getElementById('img-done');
+    if (f) f.textContent = String(p.found);
+    if (d) d.textContent = String(p.analyzed);
+  });
+  try {
+    setImageGroups(await api.images.scan(im.roots, im.minSimilarity));
+  } catch (err) {
+    toast('Skeniranje nije uspjelo: ' + (err as Error).message, true);
+  } finally {
+    off();
+    im.scanning = false;
+    render();
+    afterImagesRender();
+  }
+}
+
+/** New groups → pre-select every non-best image (the user can untick). */
+function setImageGroups(groups: ImageGroup[]) {
+  state.img.groups = groups;
+  state.img.sel = new Set(groups.flatMap((g) => g.images.filter((i) => !i.isBest).map((i) => i.path)));
+  state.img.active = 0;
+}
+
+function afterImagesRender() {
+  const im = state.img;
+  if (state.view !== 'images' || !im.groups?.length) return;
+  if (im.compare) {
+    const g = im.groups[im.compare.group];
+    void loadThumbs([im.compare.a, im.compare.b].filter((p) => g.images.some((i) => i.path === p)), 1200);
+  } else {
+    void loadThumbs(im.groups[im.active].images.map((i) => i.path), 360);
+  }
+}
+
+async function removeImages(paths: string[]) {
+  const im = state.img;
+  // Never allow emptying a whole group.
+  const emptied = im.groups!.filter((g) => g.images.every((i) => paths.includes(i.path)));
+  if (emptied.length) {
+    await modal({
+      title: 'Bar jedna slika mora ostati',
+      body: `<p>U ${emptied.length} grup${emptied.length === 1 ? 'i' : 'a'} su označene sve slike. Odznači onu koju želiš zadržati.</p>`,
+      confirm: 'U redu',
+      cancel: null,
+    });
+    return;
+  }
+  const items = im.groups!.flatMap((g) => g.images).filter((i) => paths.includes(i.path));
+  const ok = await modal({
+    title: `Premjestiti ${items.length} slika u karantin?`,
+    body: `<p>Slike se čuvaju 30 dana i mogu se vratiti. Ukupno ${fmt(items.reduce((s, i) => s + i.bytes, 0))}.</p>
+      <ul>${items.slice(0, 6).map((i) => `<li class="mono">${esc(baseName(i.path))}</li>`).join('')}${items.length > 6 ? `<li>… i još ${items.length - 6}</li>` : ''}</ul>`,
+    confirm: 'U karantin',
+    kind: 'danger',
+  });
+  if (!ok) return false;
+  let r: OpResult;
+  try {
+    r = await api.images.quarantine(paths);
+  } catch (err) {
+    toast((err as Error).message, true);
+    return false;
+  }
+  const gone = new Set(r.done.map((d) => d.path.toLowerCase()));
+  im.groups = im.groups!
+    .map((g) => ({ ...g, images: g.images.filter((i) => !gone.has(i.path.toLowerCase())) }))
+    .filter((g) => g.images.length > 1);
+  for (const p of [...im.sel]) if (gone.has(p.toLowerCase())) im.sel.delete(p);
+  if (r.failed.length) await modal({ title: `Uklonjeno ${r.done.length} od ${paths.length}`, body: failureList(r.failed), confirm: 'U redu', cancel: null });
+  else toast(`✓ ${r.done.length} slika u karantinu`);
+  await refreshQuarantine();
+  return true;
+}
+
+function handleImagesClick(t: HTMLElement): boolean {
+  const im = state.img;
+  const el = t.closest<HTMLElement>('[data-img-root],[data-img-group],[data-img-compare],[data-img-reveal]');
+  if (!el || im.scanning) return !!el;
+  const d = el.dataset;
+  if (d.imgReveal) {
+    void api.images.reveal(d.imgReveal);
+    return true;
+  }
+  if (d.imgRoot) im.roots = im.roots.filter((r) => r !== d.imgRoot);
+  else if (d.imgGroup) im.active = Number(d.imgGroup);
+  else if (d.imgCompare) {
+    const gi = im.active;
+    const best = im.groups![gi].images[0];
+    im.compare = { group: gi, a: best.path, b: d.imgCompare };
+  }
+  render();
+  afterImagesRender();
+  return true;
+}
+
+async function compareAction(act: string) {
+  const im = state.img;
+  const c = im.compare!;
+  if (act === 'cmp-back') im.compare = null;
+  if (act === 'cmp-keep') {
+    im.sel.delete(c.b);
+    im.compare = null;
+  }
+  if (act === 'cmp-swap') {
+    // Keep the right one instead: mark the left (current best) for removal.
+    im.sel.delete(c.b);
+    im.sel.add(c.a);
+    im.compare = null;
+    toast('Izbor zamijenjen: zadržava se desna slika.');
+  }
+  if (act === 'cmp-delete') {
+    if (await removeImages([c.b])) im.compare = null;
+  }
+  render();
+  afterImagesRender();
+}
+
 
 function render() {
   document.querySelectorAll<HTMLButtonElement>('.nav-item').forEach((b) =>
@@ -766,7 +1052,7 @@ function render() {
     history: renderHistory,
     programs: renderPrograms,
     largefiles: renderLargeFiles,
-    images: () => renderSoon('images'),
+    images: renderImages,
   };
   viewEl.innerHTML = html[state.view]();
 }
@@ -778,6 +1064,7 @@ async function go(view: View) {
   render();
   viewEl.focus();
   if (view === 'programs' && !state.prog.list && !state.prog.loading) await loadPrograms();
+  if (view === 'images') afterImagesRender();
 }
 
 // ---------- Actions ----------
@@ -899,6 +1186,7 @@ viewEl.addEventListener('click', (e) => {
   const goBtn = t.closest<HTMLElement>('[data-go]');
   if (goBtn) return void go(goBtn.dataset.go as View);
   if (handleLargeFilesClick(t, e)) return;
+  if (handleImagesClick(t)) return;
 
   const uninstallBtn = t.closest<HTMLElement>('[data-prog-uninstall]');
   if (uninstallBtn && !state.busy) {
@@ -914,7 +1202,27 @@ viewEl.addEventListener('click', (e) => {
 
   const act = t.closest<HTMLElement>('[data-act]')?.dataset.act;
   if (act === 'lf-cancel') return void api.largeFiles.cancel();
-  if (!act || state.busy || state.lf.scanning) return;
+  if (act === 'img-cancel') return void api.images.cancel();
+  if (!act || state.busy || state.lf.scanning || state.img.scanning) return;
+  if (act === 'img-scan') void scanImages();
+  if (act === 'img-add') {
+    void api.largeFiles.pickFolder().then((p) => {
+      if (p && !state.img.roots.some((r) => r.toLowerCase() === p.toLowerCase())) state.img.roots.push(p);
+      render();
+    });
+  }
+  if (act === 'img-auto') {
+    state.img.sel = new Set(state.img.groups?.flatMap((g) => g.images.filter((i) => !i.isBest).map((i) => i.path)));
+    render();
+    afterImagesRender();
+  }
+  if (act === 'img-remove') {
+    void removeImages([...state.img.sel]).then(() => {
+      render();
+      afterImagesRender();
+    });
+  }
+  if (act.startsWith('cmp-')) void compareAction(act);
   if (act === 'lf-scan') void scanLargeFiles();
   if (act === 'lf-add') {
     void api.largeFiles.pickFolder().then((p) => {
@@ -944,17 +1252,36 @@ viewEl.addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
   const d = input.dataset;
   const wiz = state.prog.wizard;
-  const setFor = d.cache ? state.cacheSel : d.q ? state.qSel : d.lf ? state.lf.sel : d.left && wiz ? wiz.sel : null;
-  const id = d.cache ?? d.q ?? d.lf ?? d.left;
+  if (d.imgSim !== undefined) {
+    // Re-group without re-analysing when the threshold slider is released.
+    state.img.minSimilarity = Number(input.value) / 100;
+    void api.images.regroup(state.img.minSimilarity).then((groups) => {
+      setImageGroups(groups);
+      render();
+      afterImagesRender();
+    });
+    return;
+  }
+  const setFor = d.cache ? state.cacheSel : d.q ? state.qSel : d.lf ? state.lf.sel : d.img ? state.img.sel : d.left && wiz ? wiz.sel : null;
+  const id = d.cache ?? d.q ?? d.lf ?? d.img ?? d.left;
   if (!setFor || !id) return;
   if (input.checked) setFor.add(id);
   else setFor.delete(id);
   render();
+  if (d.img) afterImagesRender();
 });
 
 // Search filters rows in place so the input keeps focus while typing.
 viewEl.addEventListener('input', (e) => {
   const input = e.target as HTMLInputElement;
+  if (input.dataset.imgSim !== undefined) {
+    document.getElementById('sim-val')!.textContent = `${input.value}%`;
+    return;
+  }
+  if (input.dataset.cmpRange !== undefined) {
+    document.getElementById('cmp-view')?.style.setProperty('--pos', `${input.value}%`);
+    return;
+  }
   if (input.dataset.progSearch === undefined) return;
   state.prog.query = input.value;
   const rows = document.getElementById('prog-rows');
@@ -965,7 +1292,13 @@ viewEl.addEventListener('input', (e) => {
 
 (async () => {
   render();
-  const [roots] = await Promise.all([api.largeFiles.defaultRoots(), refreshInfo(), refreshQuarantine()]);
+  const [roots, imgRoots] = await Promise.all([
+    api.largeFiles.defaultRoots(),
+    api.images.defaultRoots(),
+    refreshInfo(),
+    refreshQuarantine(),
+  ]);
   state.lf.roots = roots;
+  state.img.roots = imgRoots;
   render();
 })();

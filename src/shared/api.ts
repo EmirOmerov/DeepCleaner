@@ -3,6 +3,8 @@
  * The renderer never sees Node APIs — only this surface, via contextBridge.
  */
 import type { CleanReport, TargetScan } from '../core/cache/cacheCleaner';
+import type { ImageGroup, ImageMetrics, ScoredImage } from '../core/images/grouping';
+import type { ImageScanProgress } from '../core/images/imageScanner';
 import type { FileCategory, LargeFile, ScanProgress } from '../core/largefiles/largeFiles';
 import type { HistoryEntry } from '../core/quarantine/history';
 import type { OpResult, QuarantineItem } from '../core/quarantine/quarantine';
@@ -13,12 +15,16 @@ export type {
   CleanReport,
   FileCategory,
   HistoryEntry,
+  ImageGroup,
+  ImageMetrics,
+  ImageScanProgress,
   InstalledProgram,
   LargeFile,
   Leftover,
   OpResult,
   QuarantineItem,
   ScanProgress,
+  ScoredImage,
   TargetScan,
 };
 
@@ -63,6 +69,18 @@ export interface DeepCleanerApi {
     deletePermanently(paths: string[]): Promise<OpResult>;
     reveal(path: string): Promise<void>;
   };
+  images: {
+    defaultRoots(): Promise<string[]>;
+    scan(roots: string[], minSimilarity: number): Promise<ImageGroup[]>;
+    /** Re-group the last scan with a new threshold (no re-analysis). */
+    regroup(minSimilarity: number): Promise<ImageGroup[]>;
+    cancel(): Promise<void>;
+    onProgress(cb: (p: ImageScanProgress) => void): () => void;
+    /** JPEG data URL, only for images from the current groups. */
+    preview(path: string, maxSize: number): Promise<string | null>;
+    quarantine(paths: string[]): Promise<OpResult>;
+    reveal(path: string): Promise<void>;
+  };
   programs: {
     list(): Promise<InstalledProgram[]>;
     /** Runs the program's own uninstaller and waits for it. */
@@ -96,6 +114,14 @@ export const IPC = {
   lfQuarantine: 'largefiles:quarantine',
   lfDelete: 'largefiles:delete',
   lfReveal: 'largefiles:reveal',
+  imgDefaultRoots: 'images:default-roots',
+  imgScan: 'images:scan',
+  imgRegroup: 'images:regroup',
+  imgCancel: 'images:cancel',
+  imgProgress: 'images:progress',
+  imgPreview: 'images:preview',
+  imgQuarantine: 'images:quarantine',
+  imgReveal: 'images:reveal',
   programsList: 'programs:list',
   programsUninstall: 'programs:uninstall',
   programsIsInstalled: 'programs:is-installed',

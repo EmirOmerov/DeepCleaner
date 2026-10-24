@@ -10,7 +10,7 @@ A Windows 11 cleaner with four modules: deep uninstall, large files, safe cache 
 | 3. Windows cache, whitelist only | ✅ |
 | 2. Large files: treemap, filters, quarantine | ✅ |
 | 1. Deep uninstall: native uninstaller, then leftovers (folders, shortcuts, registry with .reg backup) | ✅ |
-| 4. Similar images (better/worse) | ⏳ next |
+| 4. Similar images: dHash grouping, quality score, BETTER/WORSE, slider comparison | ✅ |
 
 ## Running
 
@@ -28,6 +28,7 @@ To clean Windows Temp, Windows Update downloads and system dumps, launch the app
 - The cache cleaner only cleans locations from `src/core/cache/cacheTargets.ts`, and passes each of them to the guard as `allowRoots`. The renderer only sends category IDs and never sends paths.
 - Other modules delete into **quarantine** by default. Items can be restored for 30 days. The app's data folder is protected from all modules.
 - Scans never follow links. Locked files are skipped and reported.
+- Similar images: grouping uses a 64-bit perceptual dHash with an adjustable threshold. The "better" image is chosen by resolution (35%), sharpness via Laplacian variance (30%), JPEG quality estimated from the quantization tables (15%), noise (10%) and EXIF (10%). The score is a **heuristic**: worse images are pre-selected, but nothing is deleted without confirmation, at least one image in every group always stays, and everything goes to quarantine.
 - Deep uninstall: leftovers are searched **only after** the program has disappeared from the registry, so a cancelled or failed uninstall deletes nothing. Matching is conservative: only an exact name match is pre-selected, and publisher folders such as "Common Files" or "Microsoft" are never deleted. Registry keys go through `RegistryGuard`, which only allows `HKCU/HKLM\Software\<Vendor>` and never Microsoft, Classes or Policies. A `.reg` backup is exported before each delete.
 
 ## Structure
