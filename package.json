@@ -8,12 +8,49 @@
     "build": "tsc -p tsconfig.json && node scripts/build-renderer.mjs",
     "start": "npm run build && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dist": "npm run build && electron-builder --win nsis --x64"
   },
+  "author": "Emir Omerovic",
   "license": "UNLICENSED",
+  "build": {
+    "appId": "com.emiromerovic.deepcleaner",
+    "productName": "DeepCleaner",
+    "copyright": "Copyright © 2026 Emir Omerovic",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.map",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DeepCleaner",
+      "artifactName": "DeepCleaner-Setup-${version}.exe",
+      "uninstallDisplayName": "DeepCleaner",
+      "deleteAppDataOnUninstall": false
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"

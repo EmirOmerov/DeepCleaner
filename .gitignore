@@ -3,3 +3,4 @@ dist/
 out/
 *.log
 .ecc-design/
+release/

@@ -20,6 +20,14 @@ npm start        # build + launch the Electron app
 npm test         # Vitest: safety, quarantine and cache tests
 ```
 
+### Installer (.exe)
+
+```bash
+npm run dist     # → release/DeepCleaner-Setup-<version>.exe
+```
+
+An NSIS installer that installs **per user, without administrator rights**. The user can choose the folder, and it creates Desktop and Start Menu shortcuts. `sharp` (image decoding) is unpacked outside the asar archive. The installer is not code-signed, so Windows SmartScreen will warn on first launch ("More info" → "Run anyway"). Signing requires a code-signing certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`).
+
 To clean Windows Temp, Windows Update downloads and system dumps, launch the app as administrator. Without admin rights those categories are skipped and the UI says so.
 
 ## Safety rules
