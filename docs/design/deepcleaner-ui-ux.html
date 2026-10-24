@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="bs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepCleaner — UI/UX dizajn</title>
+<link rel="preconnect" href="https://api.fontshare.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&f[]=satoshi@400,500,700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* ===========================================
+   VIEWPORT FITTING: MANDATORY BASE STYLES
+   =========================================== */
+html, body { height: 100%; overflow-x: hidden; }
+html { scroll-snap-type: y mandatory; scroll-behavior: smooth; scrollbar-width: none; }
+/* body becomes the scroller (overflow-x on both), so snap + hide scrollbar there too */
+body { scroll-snap-type: y mandatory; scrollbar-width: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+.slide {
+  width: 100vw; height: 100vh; height: 100dvh; overflow: hidden;
+  scroll-snap-align: start; display: flex; flex-direction: column; position: relative;
+}
+.slide-content {
+  flex: 1; display: flex; flex-direction: column; justify-content: center;
+  max-height: 100%; overflow: hidden; padding: var(--slide-padding);
+  min-height: 0;
+}
+:root {
+  --title-size: clamp(1.5rem, 5vw, 4rem);
+  --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+  --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+  --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+  --small-size: clamp(0.65rem, 1vw, 0.875rem);
+  --slide-padding: clamp(1rem, 4vw, 4rem);
+  --content-gap: clamp(0.5rem, 2vw, 2rem);
+  --element-gap: clamp(0.25rem, 1vw, 1rem);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: clamp(0.5rem, 1.5vw, 1rem);
+}
+@media (max-height: 700px) {
+  :root {
+    --slide-padding: clamp(0.75rem, 3vw, 2rem);
+    --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+    --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+    --h2-size: clamp(1rem, 3vw, 1.75rem);
+  }
+}
+@media (max-height: 600px) {
+  :root {
+    --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+    --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+    --title-size: clamp(1.1rem, 4vw, 2rem);
+    --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+  }
+  .nav-dots, .keyboard-hint, .decorative { display: none; }
+}
+@media (max-height: 500px) {
+  :root {
+    --slide-padding: clamp(0.4rem, 2vw, 1rem);
+    --title-size: clamp(1rem, 3.5vw, 1.5rem);
+    --h2-size: clamp(0.9rem, 2.5vw, 1.25rem);
+    --body-size: clamp(0.65rem, 1vw, 0.85rem);
+  }
+}
+@media (max-width: 600px) {
+  :root { --title-size: clamp(1.25rem, 7vw, 2.5rem); }
+  .grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+  html { scroll-behavior: auto; }
+}
+
+/* ===========================================
+   THEME: NEON CYBER — edit these to re-skin
+   =========================================== */
+:root {
+  --bg: #060a17;
+  --bg-2: #0a1126;
+  --panel: #0d1530;
+  --panel-2: #121c3d;
+  --line: rgba(120, 200, 255, 0.14);
+  --line-strong: rgba(120, 200, 255, 0.3);
+  --text: #e8f1ff;
+  --muted: #8a9bc2;
+  --cyan: #22e3ff;        /* primary / "bolja" / safe actions */
+  --magenta: #ff3dbb;     /* accent / "lošija" / destructive */
+  --lime: #8cff6b;        /* sigurno */
+  --amber: #ffb547;       /* provjeri */
+  --red: #ff5470;         /* trajno brisanje */
+  --font-display: "Clash Display", "Segoe UI", sans-serif;
+  --font-body: "Satoshi", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, monospace;
+  --radius: clamp(6px, 0.8vw, 14px);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--font-body); font-size: var(--body-size); line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Atmosphere: grid + glows behind every slide */
+.slide { background:
+  radial-gradient(60vw 50vh at 85% 10%, rgba(34, 227, 255, .10), transparent 60%),
+  radial-gradient(50vw 50vh at 5% 95%, rgba(255, 61, 187, .09), transparent 60%),
+  var(--bg); }
+.slide::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: clamp(32px, 4vw, 64px) clamp(32px, 4vw, 64px);
+  mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%);
+  opacity: .5;
+}
+.slide-content { position: relative; z-index: 1; gap: var(--content-gap); }
+
+/* Typography */
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; line-height: 1.05; }
+h1 { font-size: var(--title-size); }
+h2 { font-size: var(--h2-size); }
+h3 { font-size: var(--h3-size); }
+.kicker {
+  font-family: var(--font-mono); font-size: var(--small-size); color: var(--cyan);
+  letter-spacing: .12em; text-transform: uppercase; display: inline-flex; align-items: center; gap: .6em;
+}
+.kicker::before { content: ""; width: 1.6em; height: 1px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.grad { background: linear-gradient(90deg, var(--cyan), var(--magenta)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.slide-head { display: flex; flex-direction: column; gap: var(--element-gap); }
+
+/* Two-column: notes + mockup */
+.split {
+  flex: 0 1 auto; min-height: 0; display: grid;
+  grid-template-columns: minmax(0, .72fr) minmax(0, 1.6fr);
+  gap: var(--content-gap); align-items: center;
+}
+.notes { list-style: none; display: flex; flex-direction: column; gap: clamp(.4rem, 1.4vh, 1rem); }
+.notes li { padding-left: 1.3em; position: relative; color: #c9d6f2; }
+.notes li::before {
+  content: ""; position: absolute; left: 0; top: .55em; width: .5em; height: .5em;
+  border: 1px solid var(--cyan); transform: rotate(45deg); box-shadow: 0 0 6px var(--cyan);
+}
+.notes b { color: var(--text); font-weight: 700; }
+
+/* ===========================================
+   MOCKUP COMPONENTS (em-based, scale with --mock-fs)
+   =========================================== */
+.mock {
+  --mock-fs: clamp(7px, min(0.92vw, 1.55vh), 14px);
+  font-size: var(--mock-fs); max-height: 100%; min-height: 0; overflow: hidden;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  box-shadow: 0 0 0 1px rgba(34,227,255,.05), 0 2em 5em rgba(0,0,0,.55), 0 0 4em rgba(34,227,255,.08);
+  display: flex; flex-direction: column;
+}
+.win-bar {
+  display: flex; align-items: center; gap: .5em; padding: .7em 1em;
+  border-bottom: 1px solid var(--line); font-size: .95em; color: var(--muted);
+}
+.win-bar i { width: .8em; height: .8em; border-radius: 50%; background: #26314f; }
+.win-bar i:first-child { background: var(--magenta); opacity: .8; }
+.win-bar span { margin-left: .6em; }
+.win-bar .ctrl { margin-left: auto; font-family: var(--font-mono); letter-spacing: .3em; }
+.win-body { display: flex; min-height: 0; flex: 1; }
+.side {
+  width: 13.5em; flex-shrink: 0; padding: 1em .7em; border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: .25em; background: rgba(0,0,0,.15);
+}
+.side .logo { font-family: var(--font-display); font-weight: 600; font-size: 1.25em; padding: 0 .5em .8em; display: flex; align-items: center; gap: .5em; }
+.side .logo::before { content: ""; width: .9em; height: .9em; border-radius: 50%; border: 2px solid var(--cyan); box-shadow: 0 0 8px var(--cyan), inset 0 0 6px var(--cyan); }
+.nav-item { padding: .6em .8em; border-radius: .5em; color: var(--muted); display: flex; justify-content: space-between; gap: .5em; }
+.nav-item.on { background: rgba(34,227,255,.1); color: var(--text); box-shadow: inset 2px 0 0 var(--cyan); }
+.nav-item em { font-style: normal; font-family: var(--font-mono); font-size: .85em; opacity: .8; }
+.pane { flex: 1; min-width: 0; padding: 1.2em 1.4em; display: flex; flex-direction: column; gap: 1em; }
+.pane-title { display: flex; align-items: baseline; justify-content: space-between; gap: 1em; }
+.pane-title h4 { font-family: var(--font-display); font-weight: 600; font-size: 1.6em; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: .4em; padding: .6em 1.1em; border-radius: .55em; font-weight: 700; font-size: 1em; white-space: nowrap; border: 1px solid transparent; }
+.btn.primary { background: var(--cyan); color: #04121a; box-shadow: 0 0 1.4em rgba(34,227,255,.45); }
+.btn.ghost { border-color: var(--line-strong); color: var(--text); }
+.btn.danger { background: rgba(255,61,187,.14); border-color: var(--magenta); color: #ffd0ee; }
+.btn.red { background: rgba(255,84,112,.12); border-color: var(--red); color: #ffc2cc; }
+.chip { display: inline-flex; align-items: center; gap: .35em; padding: .2em .65em; border-radius: 99em; font-size: .85em; font-weight: 600; border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap; }
+.chip.on { border-color: var(--cyan); color: var(--cyan); background: rgba(34,227,255,.08); }
+.chip.safe { color: var(--lime); border-color: rgba(140,255,107,.45); background: rgba(140,255,107,.07); }
+.chip.warn { color: var(--amber); border-color: rgba(255,181,71,.45); background: rgba(255,181,71,.07); }
+.chip.lock { color: #9aa7c9; border-color: rgba(154,167,201,.35); background: rgba(154,167,201,.06); }
+.chip.mag { color: var(--magenta); border-color: rgba(255,61,187,.5); background: rgba(255,61,187,.08); }
+.cb { width: 1.1em; height: 1.1em; border-radius: .25em; border: 1.5px solid var(--line-strong); flex-shrink: 0; display: inline-grid; place-items: center; }
+.cb.on { background: var(--cyan); border-color: var(--cyan); }
+.cb.on::after { content: ""; width: .35em; height: .6em; border: solid #04121a; border-width: 0 2px 2px 0; transform: translateY(-.08em) rotate(45deg); }
+.cb.dis { opacity: .35; border-style: dashed; }
+.search { flex: 1; padding: .6em 1em; border-radius: .55em; border: 1px solid var(--line-strong); color: var(--muted); background: rgba(0,0,0,.2); }
+.row-flex { display: flex; align-items: center; gap: .6em; flex-wrap: wrap; }
+.bar { height: .45em; border-radius: 99em; background: rgba(255,255,255,.07); overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--magenta)); }
+
+/* Table rows */
+.tbl { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: .7em; overflow: hidden; }
+.tr { display: grid; align-items: center; gap: .8em; padding: .65em 1em; border-top: 1px solid var(--line); }
+.tr:first-child { border-top: 0; }
+.tr.head { color: var(--muted); font-size: .85em; text-transform: uppercase; letter-spacing: .08em; background: rgba(0,0,0,.2); }
+.tr.sel { background: rgba(34,227,255,.06); }
+.app-ico { width: 2em; height: 2em; border-radius: .45em; display: grid; place-items: center; font-weight: 700; font-size: .9em; color: #04121a; }
+.name b { display: block; font-weight: 700; }
+.name small { color: var(--muted); font-size: .85em; }
+.num { font-family: var(--font-mono); text-align: right; }
+.footer-bar { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 1em; padding-top: .9em; border-top: 1px solid var(--line); flex-wrap: wrap; }
+
+/* ===========================================
+   REVEAL ANIMATIONS
+   =========================================== */
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s var(--ease), transform .7s var(--ease); transition-delay: calc(var(--d, 0) * 90ms); }
+.slide.visible .reveal { opacity: 1; transform: none; }
+
+/* ===========================================
+   SLIDE-SPECIFIC
+   =========================================== */
+/* Title */
+.title-wrap { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: var(--content-gap); height: 100%; }
+.title-wrap h1 { font-size: clamp(2rem, 7vw, 6.5rem); line-height: .95; }
+.title-wrap p { max-width: 34em; color: #c9d6f2; margin-top: var(--content-gap); }
+.radar {
+  width: min(38vw, 62vh); aspect-ratio: 1; border-radius: 50%; position: relative; justify-self: center; overflow: hidden;
+  background:
+    repeating-radial-gradient(circle, transparent 0 calc(12.5% - 1px), rgba(34,227,255,.25) calc(12.5% - 1px) 12.5%),
+    radial-gradient(circle, rgba(34,227,255,.12), transparent 70%);
+  border: 1px solid rgba(34,227,255,.5);
+  box-shadow: 0 0 60px rgba(34,227,255,.25), inset 0 0 60px rgba(34,227,255,.15);
+}
+.radar::before { content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(34,227,255,.55), transparent 22%);
+  animation: sweep 4s linear infinite; }
+.radar::after { content: ""; position: absolute; inset: 50% 0 auto 0; height: 1px; background: rgba(34,227,255,.3); box-shadow: 0 0 0 0 transparent; }
+.radar .blip { position: absolute; width: 3%; height: 3%; border-radius: 50%; background: var(--magenta); box-shadow: 0 0 12px var(--magenta); animation: blink 2.4s ease-in-out infinite; }
+.radar .blip.c { background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
+.radar .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; font-family: var(--font-display); }
+.radar .center b { font-size: clamp(1.4rem, 4vw, 3.4rem); display: block; line-height: 1; }
+.radar .center small { font-family: var(--font-mono); font-size: var(--small-size); color: var(--muted); letter-spacing: .1em; }
+@keyframes sweep { to { transform: rotate(360deg); } }
+@keyframes blink { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+
+/* Principles */
+.card { background: linear-gradient(180deg, rgba(18,28,61,.85), rgba(10,17,38,.85)); border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(.8rem, 2vw, 1.6rem); display: flex; flex-direction: column; gap: var(--element-gap); position: relative; overflow: hidden; }
+.card::after { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent, var(--cyan)), transparent); }
+.card .idx { font-family: var(--font-mono); color: var(--accent, var(--cyan)); font-size: var(--small-size); }
+.card p { color: #b9c7e6; font-size: var(--body-size); }
+
+/* IA flow */
+.flow { display: flex; align-items: stretch; gap: clamp(.3rem, 1vw, .8rem); flex-wrap: wrap; }
+.flow .step { flex: 1 1 0; min-width: min(100%, 120px); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: clamp(.6rem, 1.4vw, 1.1rem); background: rgba(13,21,48,.8); position: relative; }
+.flow .step b { font-family: var(--font-display); font-size: var(--h3-size); display: block; }
+.flow .step span { color: var(--muted); font-size: var(--small-size); }
+.flow .step .n { font-family: var(--font-mono); color: var(--cyan); font-size: var(--small-size); }
+.flow .step.hot { border-color: var(--magenta); box-shadow: 0 0 24px rgba(255,61,187,.18); }
+.flow .step.hot .n { color: var(--magenta); }
+.ia { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: clamp(.4rem, 1vw, .8rem); }
+.ia div { border-left: 2px solid var(--cyan); padding: .3em .8em; }
+.ia div:nth-child(even) { border-color: var(--magenta); }
+.ia b { display: block; font-size: var(--body-size); }
+.ia small { color: var(--muted); font-size: var(--small-size); }
+
+/* Dashboard mock */
+.dash { display: grid; grid-template-columns: 15em 1fr; gap: 1.4em; align-items: center; }
+.ring { width: 15em; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; position: relative;
+  background: conic-gradient(var(--cyan) 0 62%, var(--magenta) 62% 87%, rgba(255,255,255,.07) 87% 100%); }
+.ring::before { content: ""; position: absolute; inset: 1.1em; border-radius: 50%; background: var(--panel); }
+.ring div { position: relative; text-align: center; }
+.ring b { font-family: var(--font-display); font-size: 3em; line-height: 1; display: block; }
+.ring small { color: var(--muted); }
+.mods { display: grid; grid-template-columns: 1fr 1fr; gap: .8em; }
+.mod { border: 1px solid var(--line); border-radius: .7em; padding: .9em 1em; background: rgba(0,0,0,.18); display: flex; flex-direction: column; gap: .35em; }
+.mod .t { display: flex; justify-content: space-between; color: var(--muted); font-size: .9em; }
+.mod b { font-family: var(--font-display); font-size: 1.8em; font-weight: 600; }
+.legend { display: flex; gap: 1.2em; font-size: .9em; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .4em; vertical-align: middle; }
+
+/* Uninstall list */
+.t-apps .tr { grid-template-columns: 1.2em 2em minmax(0, 2.4fr) 1fr 1fr 8.5em; }
+/* Leftovers tree */
+.stepper { display: flex; gap: .5em; }
+.stepper div { flex: 1; padding: .55em .8em; border-radius: .5em; border: 1px solid var(--line); color: var(--muted); font-size: .9em; }
+.stepper .done { border-color: rgba(140,255,107,.4); color: var(--lime); }
+.stepper .now { border-color: var(--cyan); color: var(--text); background: rgba(34,227,255,.07); box-shadow: 0 0 1.2em rgba(34,227,255,.15); }
+.tree .tr { grid-template-columns: 1.2em minmax(0, 1fr) auto 5.5em; }
+.tree .grp { background: rgba(0,0,0,.22); font-weight: 700; }
+.tree .tr:not(.grp) .path { padding-left: 1.4em; font-family: var(--font-mono); font-size: .9em; color: #c3d0ee; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Large files */
+.lf { display: grid; grid-template-columns: 1fr 1.35fr; gap: 1em; min-height: 0; }
+.treemap { display: grid; grid-template-columns: 3fr 2fr 1.4fr; grid-template-rows: 1.4fr 1fr 1fr; gap: .3em; min-height: 16em; }
+.treemap div { border-radius: .4em; padding: .5em; font-size: .85em; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.treemap b { font-family: var(--font-mono); font-size: 1.05em; }
+.tm1 { grid-row: span 2; background: linear-gradient(135deg, rgba(255,61,187,.55), rgba(255,61,187,.2)); outline: 2px solid var(--magenta); }
+.tm2 { background: linear-gradient(135deg, rgba(34,227,255,.5), rgba(34,227,255,.18)); outline: 2px solid var(--cyan); }
+.tm3 { background: rgba(34,227,255,.22); }
+.tm4 { grid-column: span 2; background: linear-gradient(135deg, rgba(34,227,255,.45), rgba(34,227,255,.15)); outline: 2px solid var(--cyan); }
+.tm5 { grid-column: span 2; background: rgba(140,155,200,.18); }
+.tm6 { background: rgba(255,181,71,.25); }
+.tm7 { background: rgba(140,155,200,.12); }
+.t-files .tr { grid-template-columns: 1.2em minmax(0, 1fr) 5em; padding: .55em .8em; }
+.t-files .name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .95em; }
+
+/* Cache */
+.cache { display: grid; grid-template-columns: 1.25fr 1fr; gap: 1em; min-height: 0; }
+.col-title { font-size: .85em; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .5em; display: flex; align-items: center; gap: .5em; }
+.t-cache .tr { grid-template-columns: 1.2em minmax(0, 1fr) 5em; padding: .55em .9em; }
+.locked { border: 1px dashed rgba(154,167,201,.35); border-radius: .7em; padding: .7em .9em; display: flex; flex-direction: column; gap: .5em; background: repeating-linear-gradient(135deg, rgba(154,167,201,.04) 0 .6em, transparent .6em 1.2em); }
+.locked div { display: flex; align-items: center; gap: .6em; color: #9aa7c9; font-family: var(--font-mono); font-size: .9em; }
+.locked div::before { content: ""; width: .8em; height: .65em; border: 1.5px solid currentColor; border-radius: .15em; flex-shrink: 0; box-shadow: 0 -.35em 0 -.15em transparent; }
+.lock-ico { display: inline-block; width: .9em; height: .7em; border: 1.5px solid currentColor; border-radius: .15em; position: relative; margin-top: .3em; }
+.lock-ico::before { content: ""; position: absolute; left: 50%; bottom: 100%; width: .5em; height: .4em; transform: translateX(-50%); border: 1.5px solid currentColor; border-bottom: 0; border-radius: .3em .3em 0 0; }
+.note-box { border: 1px solid rgba(34,227,255,.3); border-radius: .7em; padding: .7em .9em; background: rgba(34,227,255,.05); font-size: .9em; color: #c9d6f2; }
+
+/* Photos (abstract, CSS-only) */
+.photo { aspect-ratio: 4 / 3; border-radius: .5em; position: relative; overflow: hidden;
+  background:
+    radial-gradient(circle at 72% 30%, #ffe08a 0 9%, rgba(255,224,138,.35) 10% 16%, transparent 17%),
+    linear-gradient(170deg, transparent 52%, #1d5240 53% 70%, #10301f 71%),
+    linear-gradient(200deg, transparent 58%, #2b6a52 59%),
+    linear-gradient(to bottom, #ff9a7a, #c56bd6 45%, #5a7be0 70%); }
+.photo.p2 { background:
+    radial-gradient(circle at 30% 40%, #fff 0 6%, transparent 7%),
+    radial-gradient(ellipse at 50% 120%, #1a2d6b 0 45%, transparent 46%),
+    linear-gradient(to bottom, #0f1b46, #3a2a7a 50%, #e06aa8); }
+.photo.worse { filter: blur(.12em) saturate(.6) contrast(.8) brightness(.85); }
+.photo.worse2 { filter: blur(.22em) saturate(.45) contrast(.75) brightness(.8); }
+.thumb { border-radius: .7em; padding: .45em; border: 1.5px solid var(--line); background: rgba(0,0,0,.2); display: flex; flex-direction: column; gap: .45em; position: relative; }
+.thumb.best { border-color: var(--cyan); box-shadow: 0 0 1.6em rgba(34,227,255,.25); }
+.thumb.bad { border-color: rgba(255,61,187,.6); }
+.thumb .badge { position: absolute; top: .9em; left: .9em; z-index: 2; font-weight: 700; font-size: .8em; letter-spacing: .08em; padding: .25em .6em; border-radius: .35em; }
+.badge.b { background: var(--cyan); color: #04121a; }
+.badge.l { background: var(--magenta); color: #fff; }
+.thumb .cb { position: absolute; top: .9em; right: .9em; z-index: 2; background: rgba(0,0,0,.5); }
+.thumb .cb.on { background: var(--magenta); border-color: var(--magenta); }
+.thumb .cb.on::after { border-color: #fff; }
+.thumb .meta { font-family: var(--font-mono); font-size: .8em; color: var(--muted); display: flex; justify-content: space-between; gap: .4em; }
+.thumb .score { display: flex; align-items: center; gap: .5em; font-size: .85em; }
+.thumb .score .bar { flex: 1; }
+.thumb.bad .bar > i { background: var(--magenta); }
+.thumb.best .bar > i { background: var(--cyan); }
+.imgs { display: grid; grid-template-columns: 1.35fr 1fr 1fr 1fr; gap: .7em; align-items: start; }
+.img-layout { display: grid; grid-template-columns: 12.5em 1fr; gap: 1.1em; min-height: 0; }
+.filters { display: flex; flex-direction: column; gap: .9em; font-size: .92em; }
+.filters .lbl { color: var(--muted); font-size: .85em; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .3em; }
+.slider { height: .35em; border-radius: 99em; background: rgba(255,255,255,.1); position: relative; margin: .8em .5em .8em 0; }
+.slider i { position: absolute; left: 0; top: 0; bottom: 0; width: 90%; border-radius: inherit; background: var(--cyan); }
+.slider i::after { content: ""; position: absolute; right: -.5em; top: 50%; width: 1em; height: 1em; border-radius: 50%; background: #fff; transform: translateY(-50%); box-shadow: 0 0 .8em var(--cyan); }
+.grp-list div { padding: .4em .6em; border-radius: .4em; color: var(--muted); display: flex; justify-content: space-between; }
+.grp-list .on { background: rgba(34,227,255,.1); color: var(--text); }
+
+/* Compare */
+.cmp { display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.2em; min-height: 0; }
+.cmp-view { position: relative; border-radius: .7em; overflow: hidden; border: 1px solid var(--line-strong); }
+.cmp-view .photo { border-radius: 0; aspect-ratio: 16 / 10; }
+.cmp-view .half { position: absolute; inset: 0; clip-path: inset(0 0 0 52%); }
+.cmp-view .half .photo { height: 100%; }
+.cmp-view .handle { position: absolute; top: 0; bottom: 0; left: 52%; width: 2px; background: #fff; box-shadow: 0 0 1em var(--cyan); }
+.cmp-view .handle::after { content: "◀ ▶"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; color: #04121a; font-size: .75em; font-weight: 700; padding: .5em .6em; border-radius: 99em; white-space: nowrap; }
+.cmp-view .tag { position: absolute; top: .8em; font-weight: 700; font-size: .8em; padding: .25em .6em; border-radius: .35em; letter-spacing: .08em; }
+.cmp-view .tag.l { left: .8em; background: var(--cyan); color: #04121a; }
+.cmp-view .tag.r { right: .8em; background: var(--magenta); color: #fff; }
+.metrics .tr { grid-template-columns: minmax(0, 1.1fr) 1fr 1fr; padding: .55em .8em; font-size: .92em; }
+.metrics .w { color: var(--cyan); font-weight: 700; }
+.metrics .x { color: var(--magenta); }
+.verdict { border: 1px solid var(--cyan); border-radius: .7em; padding: .8em 1em; background: rgba(34,227,255,.07); display: flex; flex-direction: column; gap: .3em; }
+.verdict b { font-family: var(--font-display); font-size: 1.4em; font-weight: 600; }
+
+/* Modal */
+.modal-stage { position: relative; display: grid; place-items: center; min-height: 0; padding: 2em; background: rgba(0,0,0,.35); flex: 1; }
+.modal { width: min(100%, 36em); border: 1px solid var(--line-strong); border-radius: .9em; background: var(--panel-2); padding: 1.4em 1.5em; display: flex; flex-direction: column; gap: 1em; box-shadow: 0 2em 4em rgba(0,0,0,.6), 0 0 3em rgba(255,61,187,.12); }
+.modal h4 { font-family: var(--font-display); font-weight: 600; font-size: 1.6em; }
+.opt { border: 1px solid var(--line); border-radius: .6em; padding: .8em .9em; display: grid; grid-template-columns: 1.3em 1fr; gap: .7em; align-items: start; }
+.opt.on { border-color: var(--cyan); background: rgba(34,227,255,.06); }
+.radio { width: 1.1em; height: 1.1em; border-radius: 50%; border: 1.5px solid var(--line-strong); margin-top: .15em; }
+.opt.on .radio { border-color: var(--cyan); box-shadow: inset 0 0 0 .25em var(--panel-2), inset 0 0 0 1em var(--cyan); }
+.opt small { color: var(--muted); display: block; }
+.toast { position: absolute; bottom: 1.2em; right: 1.2em; background: #0b1a2c; border: 1px solid var(--lime); border-radius: .6em; padding: .6em .9em; display: flex; gap: 1em; align-items: center; font-size: .9em; }
+.toast u { color: var(--cyan); text-decoration: none; font-weight: 700; }
+
+/* Design system */
+.ds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--content-gap); flex: 0 1 auto; min-height: 0; align-content: center; }
+.ds .card { font-size: clamp(8px, min(1vw, 1.6vh), 15px); gap: 1em; }
+.ds h3 { font-size: var(--h3-size); }
+.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6em; }
+.sw { aspect-ratio: 1; border-radius: .5em; display: flex; align-items: flex-end; padding: .4em; font-family: var(--font-mono); font-size: .8em; border: 1px solid var(--line); }
+.ty-big { font-family: var(--font-display); font-size: 2.6em; line-height: 1; }
+.ty-mid { font-weight: 700; font-size: 1.3em; }
+.comp { display: flex; flex-wrap: wrap; gap: .6em; align-items: center; }
+
+/* Result */
+.result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--content-gap); align-items: center; height: 100%; }
+.big-num { font-family: var(--font-display); font-size: clamp(3rem, 11vw, 9.5rem); font-weight: 600; line-height: .9; }
+.big-num small { font-size: .35em; color: var(--muted); }
+.breakdown { display: flex; flex-direction: column; gap: clamp(.5rem, 1.6vh, 1rem); }
+.breakdown .r { display: grid; grid-template-columns: 9em 1fr 4.5em; gap: .8em; align-items: center; font-size: var(--body-size); }
+.breakdown .bar { height: .6em; }
+.breakdown .num { color: var(--cyan); }
+
+/* ===========================================
+   CHROME: progress, dots, counter, hint
+   =========================================== */
+.progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 50; background: linear-gradient(90deg, var(--cyan), var(--magenta)); box-shadow: 0 0 10px var(--cyan); transition: width .4s var(--ease); }
+.nav-dots { position: fixed; right: clamp(.5rem, 1.5vw, 1.5rem); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: .55rem; z-index: 50; }
+.nav-dots button { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--line-strong); background: transparent; cursor: pointer; padding: 0; transition: all .3s var(--ease); }
+.nav-dots button[aria-current="true"] { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan); transform: scale(1.3); }
+.nav-dots button:focus-visible { outline: 2px solid var(--magenta); outline-offset: 3px; }
+.counter { position: fixed; left: clamp(.6rem, 2vw, 1.6rem); bottom: clamp(.5rem, 1.5vh, 1.2rem); z-index: 50; font-family: var(--font-mono); font-size: var(--small-size); color: var(--muted); }
+.counter b { color: var(--cyan); }
+.keyboard-hint { position: fixed; right: clamp(.6rem, 2vw, 1.6rem); bottom: clamp(.5rem, 1.5vh, 1.2rem); z-index: 50; font-family: var(--font-mono); font-size: var(--small-size); color: var(--muted); opacity: .7; }
+
+/* ===========================================
+   RESPONSIVE: collapse layouts, shed detail
+   =========================================== */
+@media (max-width: 1100px) {
+  .side { width: 10.5em; }
+  .ds { grid-template-columns: 1fr 1fr; }
+  .ds .card:nth-child(3) { grid-column: span 2; }
+}
+@media (max-width: 900px) {
+  .split { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); align-items: start; }
+  .split .mock { align-self: stretch; }
+  .title-wrap, .result { grid-template-columns: 1fr; align-content: center; }
+  .radar { width: min(60vw, 34vh); }
+  .side { display: none; }
+  .mock { --mock-fs: clamp(7px, min(1.6vw, 1.3vh), 13px); }
+}
+@media (max-width: 600px), (max-height: 520px) {
+  .split .notes { display: none; }
+  .nav-dots, .keyboard-hint { display: none; }
+  .mock { --mock-fs: clamp(6.5px, min(1.9vw, 1.5vh), 12px); }
+  .imgs { grid-template-columns: 1fr 1fr; }
+  .imgs .thumb:nth-child(n+3) { display: none; }
+  .img-layout { grid-template-columns: 1fr; }
+  .img-layout .filters { display: none; }
+  .lf, .cache, .cmp { grid-template-columns: 1fr; }
+  .treemap { display: none; }
+  .cache .locked-col { display: none; }
+  .cmp .metrics-col .tbl .tr:nth-child(n+5) { display: none; }
+  .t-apps .tr { grid-template-columns: 1.2em 2em minmax(0, 1fr) 4.5em 7.5em; }
+  .t-apps .tr > :nth-child(5) { display: none; }
+  .dash { grid-template-columns: 1fr; justify-items: center; }
+  .ring { width: 11em; }
+  .mods { width: 100%; }
+  .ds { grid-template-columns: 1fr; }
+  .ds .card:nth-child(3) { grid-column: auto; }
+  .ds .card:nth-child(n+2) .comp:nth-of-type(n+2), .ds .hide-sm { display: none; }
+  .principles { grid-template-columns: 1fr 1fr; }
+  .principles .card p { display: none; }
+  .ia { display: none; }
+  .tree .tr:nth-child(n+8) { display: none; }
+  .t-files .tr:nth-child(n+6), .t-cache .tr:nth-child(n+6) { display: none; }
+  .result .breakdown .r { grid-template-columns: 7em 1fr 4em; }
+  .modal-stage { padding: 1em; }
+  .toast { display: none; }
+}
+@media (max-height: 520px) and (min-width: 601px) {
+  .split { grid-template-columns: 1fr; }
+  .ds { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ds .card:nth-child(3) { grid-column: auto; }
+  .title-wrap, .result { grid-template-columns: 1.2fr 1fr; }
+  .radar { width: min(30vw, 62vh); }
+  .principles { grid-template-columns: repeat(4, 1fr); }
+  .dash { grid-template-columns: 11em 1fr; }
+  .tr { padding: .4em .8em; }
+  .imgs { grid-template-columns: repeat(3, 1fr); }
+  .imgs .thumb:nth-child(3) { display: flex; }
+  .cmp { grid-template-columns: 1.2fr 1fr; }
+  .verdict { display: none; }
+  .t-cache .tr:nth-child(n+5) { display: none; }
+  .cache .col-title { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="progress" aria-hidden="true"></div>
+
+<main id="deck">
+
+<!-- 01 · TITLE -->
+<section class="slide" aria-label="Naslov">
+  <div class="slide-content">
+    <div class="title-wrap">
+      <div>
+        <span class="kicker reveal">UI/UX koncept · Windows desktop</span>
+        <h1 class="reveal" style="--d:1">Deep<span class="grad">Cleaner</span></h1>
+        <p class="reveal" style="--d:2">Dubinska deinstalacija programa, veliki fajlovi, siguran Windows cache i pametni skener sličnih slika. Sve u jednom alatu koji <b>nikad ne dira sistemske fajlove</b>.</p>
+      </div>
+      <div class="radar reveal" style="--d:3" aria-hidden="true">
+        <span class="blip" style="top:22%;left:64%"></span>
+        <span class="blip c" style="top:62%;left:28%;animation-delay:.8s"></span>
+        <span class="blip" style="top:70%;left:70%;animation-delay:1.6s"></span>
+        <span class="blip c" style="top:34%;left:20%;animation-delay:1.1s"></span>
+        <div class="center"><div><b>12.4 GB</b><small>MOŽE SE OSLOBODITI</small></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 02 · PRINCIPLES -->
+<section class="slide" aria-label="Principi dizajna">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">01 · Principi</span>
+      <h2 class="reveal" style="--d:1">Moćan alat, ali <span class="grad">nikad slijep</span></h2>
+    </header>
+    <div class="grid principles">
+      <article class="card reveal" style="--d:2"><span class="idx">/01</span><h3>Sigurnost prvo</h3><p>Lista dozvoljenih lokacija (whitelist), zaštićene sistemske putanje i karantin od 30 dana prije trajnog brisanja.</p></article>
+      <article class="card reveal" style="--d:3;--accent:var(--magenta)"><span class="idx">/02</span><h3>Transparentnost</h3><p>Svaka stavka prikazuje putanju, veličinu i nivo rizika. Bez skrivenih „optimizacija“.</p></article>
+      <article class="card reveal" style="--d:4;--accent:var(--lime)"><span class="idx">/03</span><h3>Korisnik odlučuje</h3><p>Aplikacija predlaže i automatski označava, ali ništa se ne briše bez potvrde.</p></article>
+      <article class="card reveal" style="--d:5;--accent:var(--amber)"><span class="idx">/04</span><h3>Jedan tok</h3><p>Svi moduli dijele isti obrazac: Skeniraj → Pregledaj → Odaberi → Potvrdi.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- 03 · IA / FLOW -->
+<section class="slide" aria-label="Arhitektura informacija">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">02 · Arhitektura informacija</span>
+      <h2 class="reveal" style="--d:1">Pet modula, <span class="grad">jedan obrazac</span></h2>
+    </header>
+    <div class="ia reveal" style="--d:2">
+      <div><b>Kontrolna tabla</b><small>Stanje diska + pametno skeniranje</small></div>
+      <div><b>Programi</b><small>Duboka deinstalacija + ostaci</small></div>
+      <div><b>Veliki fajlovi</b><small>Treemap + filteri</small></div>
+      <div><b>Windows cache</b><small>Samo sigurne kategorije</small></div>
+      <div><b>Slike</b><small>Duplikati i slične slike</small></div>
+      <div><b>Karantin i historija</b><small>Vraćanje, dnevnik akcija</small></div>
+    </div>
+    <div class="flow">
+      <div class="step reveal" style="--d:3"><span class="n">01</span><b>Skeniraj</b><span>Napredak uživo, može se otkazati</span></div>
+      <div class="step reveal" style="--d:4"><span class="n">02</span><b>Pregledaj</b><span>Grupisano po riziku i veličini</span></div>
+      <div class="step reveal" style="--d:5"><span class="n">03</span><b>Odaberi</b><span>Pametni prijedlozi su već označeni</span></div>
+      <div class="step hot reveal" style="--d:6"><span class="n">04</span><b>Potvrdi</b><span>Karantin ili trajno brisanje</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 · DASHBOARD -->
+<section class="slide" aria-label="Kontrolna tabla">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">03 · Kontrolna tabla</span>
+      <h2 class="reveal" style="--d:1">Jedan pogled, <span class="grad">jasan sljedeći korak</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2"><b>Prsten diska</b> razdvaja zauzeto (cyan) od onoga što se može osloboditi (magenta).</li>
+        <li class="reveal" style="--d:3">Svaki modul je kartica sa <b>potencijalnom uštedom</b>; klik otvara detalje.</li>
+        <li class="reveal" style="--d:4"><b>Pametno skeniranje</b> pokreće sve module paralelno.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup kontrolne table">
+        <div class="win-bar"><i></i><i></i><i></i><span>DeepCleaner</span><span class="ctrl">— ▢ ✕</span></div>
+        <div class="win-body">
+          <aside class="side">
+            <div class="logo">DeepCleaner</div>
+            <div class="nav-item on">Kontrolna tabla</div>
+            <div class="nav-item">Programi <em>42</em></div>
+            <div class="nav-item">Veliki fajlovi</div>
+            <div class="nav-item">Windows cache</div>
+            <div class="nav-item">Slike <em>118</em></div>
+            <div class="nav-item" style="margin-top:auto">Karantin <em>3</em></div>
+            <div class="nav-item">Postavke</div>
+          </aside>
+          <div class="pane">
+            <div class="pane-title"><h4>Disk C:</h4><span class="chip safe">● Zadnje skeniranje: prije 2 min</span></div>
+            <div class="dash">
+              <div class="ring"><div><b>87%</b><small>412 / 476 GB</small></div></div>
+              <div class="mods">
+                <div class="mod"><div class="t">Programi <span>14 ostataka</span></div><b>4.1 GB</b><div class="bar"><i style="width:72%"></i></div></div>
+                <div class="mod"><div class="t">Veliki fajlovi <span>&gt; 500 MB</span></div><b>3.2 GB</b><div class="bar"><i style="width:56%"></i></div></div>
+                <div class="mod"><div class="t">Windows cache <span>sigurno</span></div><b>2.0 GB</b><div class="bar"><i style="width:36%"></i></div></div>
+                <div class="mod"><div class="t">Slike <span>118 sličnih</span></div><b>3.1 GB</b><div class="bar"><i style="width:54%"></i></div></div>
+              </div>
+            </div>
+            <div class="footer-bar">
+              <div class="legend"><span><i style="background:var(--cyan)"></i>Zauzeto</span><span><i style="background:var(--magenta)"></i>Može se osloboditi</span><span><i style="background:#26314f"></i>Slobodno</span></div>
+              <span class="btn primary">Pametno skeniranje · 12.4 GB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 05 · UNINSTALL LIST -->
+<section class="slide" aria-label="Programi">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">04 · Programi</span>
+      <h2 class="reveal" style="--d:1">Pronađi šta ti <span class="grad">više ne treba</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2">Sortiranje po <b>veličini</b> i <b>zadnjem korištenju</b>; rijetko korišteni programi se ističu.</li>
+        <li class="reveal" style="--d:3">Oznake <b>Bloatware</b> i <b>Zastarjelo</b> pomažu pri odluci.</li>
+        <li class="reveal" style="--d:4">Masovna deinstalacija: označi više programa i pokreni ih redom.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup liste programa">
+        <div class="win-bar"><i></i><i></i><i></i><span>DeepCleaner — Programi</span><span class="ctrl">— ▢ ✕</span></div>
+        <div class="win-body">
+          <aside class="side">
+            <div class="logo">DeepCleaner</div>
+            <div class="nav-item">Kontrolna tabla</div>
+            <div class="nav-item on">Programi <em>42</em></div>
+            <div class="nav-item">Veliki fajlovi</div>
+            <div class="nav-item">Windows cache</div>
+            <div class="nav-item">Slike <em>118</em></div>
+          </aside>
+          <div class="pane">
+            <div class="row-flex"><div class="search">⌕ Pretraži programe…</div><span class="chip on">Sve 42</span><span class="chip">Rijetko korišteni 9</span><span class="chip">Bloatware 4</span></div>
+            <div class="tbl t-apps">
+              <div class="tr head"><span></span><span></span><span>Program</span><span class="num">Veličina</span><span class="num">Korišten</span><span></span></div>
+              <div class="tr sel"><span class="cb on"></span><span class="app-ico" style="background:#ff5470">Ar</span><span class="name"><b>Adobe Acrobat Reader</b><small>Adobe Inc.</small></span><span class="num">1.2 GB</span><span class="num" style="color:var(--amber)">214 d</span><span class="btn danger">Duboko ukloni</span></div>
+              <div class="tr"><span class="cb"></span><span class="app-ico" style="background:#22e3ff">St</span><span class="name"><b>Steam</b><small>Valve Corp.</small></span><span class="num">860 MB</span><span class="num">2 d</span><span class="btn ghost">Ukloni</span></div>
+              <div class="tr sel"><span class="cb on"></span><span class="app-ico" style="background:#ffb547">Cc</span><span class="name"><b>Candy Crush Saga</b><small><span class="chip mag">Bloatware</span></small></span><span class="num">180 MB</span><span class="num" style="color:var(--amber)">nikad</span><span class="btn danger">Duboko ukloni</span></div>
+              <div class="tr"><span class="cb"></span><span class="app-ico" style="background:#8cff6b">Sp</span><span class="name"><b>Spotify</b><small>Spotify AB</small></span><span class="num">412 MB</span><span class="num">danas</span><span class="btn ghost">Ukloni</span></div>
+              <div class="tr sel"><span class="cb on"></span><span class="app-ico" style="background:#9aa7c9">Jv</span><span class="name"><b>Java 8 Update 401</b><small><span class="chip warn">Zastarjelo</span></small></span><span class="num">220 MB</span><span class="num" style="color:var(--amber)">390 d</span><span class="btn danger">Duboko ukloni</span></div>
+            </div>
+            <div class="footer-bar"><span class="muted">3 odabrana · <b style="color:var(--text)">1.6 GB</b> + ostaci</span><span class="btn primary">Duboka deinstalacija (3)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 06 · DEEP UNINSTALL LEFTOVERS -->
+<section class="slide" aria-label="Duboka deinstalacija">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">05 · Duboka deinstalacija</span>
+      <h2 class="reveal" style="--d:1">Ukloni i ono što <span class="grad">ostane iza</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2">Prvo se pokreće <b>originalni uninstaller</b>, zatim skeniranje ostataka.</li>
+        <li class="reveal" style="--d:3">Ostaci grupisani: <b>fajlovi, registar, servisi, zakazani zadaci</b>.</li>
+        <li class="reveal" style="--d:4">Zeleno je označeno automatski; <b>žuto</b> traži ručnu provjeru.</li>
+        <li class="reveal" style="--d:5">Prije brisanja se pravi <b>tačka vraćanja sistema</b>.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup ostataka nakon deinstalacije">
+        <div class="win-bar"><i></i><i></i><i></i><span>Duboka deinstalacija — Adobe Acrobat Reader</span></div>
+        <div class="pane">
+          <div class="stepper"><div class="done">✓ 1 · Standardna deinstalacija</div><div class="now">◉ 2 · Ostaci pronađeni</div><div>3 · Brisanje</div></div>
+          <div class="tbl tree">
+            <div class="tr grp"><span class="cb on"></span><span>Fajlovi i folderi</span><span class="chip safe">Sigurno</span><span class="num">428 MB</span></div>
+            <div class="tr"><span class="cb on"></span><span class="path">C:\Program Files\Adobe\Acrobat DC\</span><span></span><span class="num">340 MB</span></div>
+            <div class="tr"><span class="cb on"></span><span class="path">%AppData%\Adobe\Acrobat\</span><span></span><span class="num">88 MB</span></div>
+            <div class="tr grp"><span class="cb on"></span><span>Registar · 214 ključeva</span><span class="chip safe">Sigurno</span><span class="num">—</span></div>
+            <div class="tr"><span class="cb on"></span><span class="path">HKCU\Software\Adobe\Acrobat Reader</span><span></span><span class="num">196</span></div>
+            <div class="tr grp"><span class="cb on"></span><span>Servisi i zakazani zadaci</span><span class="chip safe">Sigurno</span><span class="num">2</span></div>
+            <div class="tr"><span class="cb on"></span><span class="path">AdobeARMservice · Adobe Update Task</span><span></span><span class="num">2</span></div>
+            <div class="tr grp"><span class="cb"></span><span>Dijeljene komponente</span><span class="chip warn">Provjeri</span><span class="num">36 MB</span></div>
+            <div class="tr"><span class="cb"></span><span class="path">C:\Program Files\Common Files\Adobe\</span><span></span><span class="num">36 MB</span></div>
+          </div>
+          <div class="footer-bar"><span class="chip safe">✓ Tačka vraćanja kreirana</span><span class="btn primary">Ukloni ostatke · 428 MB</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 07 · LARGE FILES -->
+<section class="slide" aria-label="Veliki fajlovi">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">06 · Veliki fajlovi</span>
+      <h2 class="reveal" style="--d:1">Vidi gdje <span class="grad">nestaje prostor</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2"><b>Treemap</b> prikazuje veličinu vizuelno; lista daje tačne podatke.</li>
+        <li class="reveal" style="--d:3">Filteri: minimalna veličina, tip fajla, starost, lokacija.</li>
+        <li class="reveal" style="--d:4">Fajlovi koji su <b>u upotrebi</b> su označeni i ne mogu se odabrati.</li>
+        <li class="reveal" style="--d:5">Akcije: otvori lokaciju, u koš, trajno obriši.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup skenera velikih fajlova">
+        <div class="win-bar"><i></i><i></i><i></i><span>DeepCleaner — Veliki fajlovi</span></div>
+        <div class="pane">
+          <div class="row-flex"><span class="chip on">&gt; 500 MB</span><span class="chip on">Video</span><span class="chip on">Arhive / ISO</span><span class="chip">Dokumenti</span><span class="chip">Starije od 6 mj.</span><span class="muted" style="margin-left:auto">23 fajla · 41.7 GB</span></div>
+          <div class="lf">
+            <div class="treemap" aria-hidden="true">
+              <div class="tm1"><b>18 GB</b>VM_disk.vhdx</div>
+              <div class="tm2"><b>5.8 GB</b>Win11.iso</div>
+              <div class="tm3"><b>3.1 GB</b>.mp4</div>
+              <div class="tm4"><b>2.4 GB</b>backup_2023.zip</div>
+              <div class="tm5"><b>1.9 GB</b>Ostalo (12)</div>
+              <div class="tm6"><b>1.1 GB</b>.psd</div>
+              <div class="tm7"></div>
+            </div>
+            <div class="tbl t-files">
+              <div class="tr sel"><span class="cb on"></span><span class="name"><b>Win11_23H2_x64.iso</b><small>Downloads · prije 8 mj.</small></span><span class="num">5.8 GB</span></div>
+              <div class="tr sel"><span class="cb on"></span><span class="name"><b>Projekat_final_v3.mp4</b><small>Videos · prije 1 god.</small></span><span class="num">3.1 GB</span></div>
+              <div class="tr sel"><span class="cb on"></span><span class="name"><b>backup_2023.zip</b><small>Documents · prije 1 god.</small></span><span class="num">2.4 GB</span></div>
+              <div class="tr"><span class="cb dis"></span><span class="name"><b>VM_disk.vhdx</b><small><span class="chip warn">U upotrebi</span></small></span><span class="num">18 GB</span></div>
+              <div class="tr"><span class="cb"></span><span class="name"><b>Logo_master.psd</b><small>Desktop · prije 3 mj.</small></span><span class="num">1.1 GB</span></div>
+            </div>
+          </div>
+          <div class="footer-bar"><span class="muted">3 odabrana · <b style="color:var(--text)">11.3 GB</b></span><span class="row-flex"><span class="btn ghost">Otvori lokaciju</span><span class="btn danger">U karantin</span><span class="btn red">Trajno obriši</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 08 · WINDOWS CACHE -->
+<section class="slide" aria-label="Windows cache">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">07 · Windows cache</span>
+      <h2 class="reveal" style="--d:1">Čisti cache, <span class="grad">sistem ostaje netaknut</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2">Briše se <b>samo sa liste dozvoljenih lokacija</b>, nikad po nagađanju.</li>
+        <li class="reveal" style="--d:3">Sistemske putanje su <b>vidljivo zaključane</b>, da korisnik zna da su zaštićene.</li>
+        <li class="reveal" style="--d:4">Fajlovi koje drži neki proces se <b>preskaču</b>, bez grešaka.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup čišćenja Windows cache-a">
+        <div class="win-bar"><i></i><i></i><i></i><span>DeepCleaner — Windows cache</span></div>
+        <div class="pane">
+          <div class="cache">
+            <div>
+              <div class="col-title"><span class="chip safe">● Sigurno za čišćenje</span></div>
+              <div class="tbl t-cache">
+                <div class="tr sel"><span class="cb on"></span><span class="name"><b>Windows Temp</b><small class="mono">C:\Windows\Temp</small></span><span class="num">612 MB</span></div>
+                <div class="tr sel"><span class="cb on"></span><span class="name"><b>Korisnički Temp</b><small class="mono">%TEMP%</small></span><span class="num">540 MB</span></div>
+                <div class="tr sel"><span class="cb on"></span><span class="name"><b>Windows Update preuzimanja</b><small class="mono">SoftwareDistribution\Download</small></span><span class="num">480 MB</span></div>
+                <div class="tr sel"><span class="cb on"></span><span class="name"><b>Cache preglednika</b><small>Edge · Chrome · Firefox</small></span><span class="num">310 MB</span></div>
+                <div class="tr sel"><span class="cb on"></span><span class="name"><b>Thumbnail cache</b><small>Explorer sličice</small></span><span class="num">64 MB</span></div>
+                <div class="tr"><span class="cb"></span><span class="name"><b>Izvještaji o padovima</b><small>Crash dumps · WER</small></span><span class="num">22 MB</span></div>
+              </div>
+            </div>
+            <div class="locked-col" style="display:flex;flex-direction:column;gap:.8em">
+              <div class="col-title"><span class="chip lock"><span class="lock-ico"></span>&nbsp;Zaštićeno, nikad se ne dira</span></div>
+              <div class="locked">
+                <div>C:\Windows\System32</div>
+                <div>C:\Windows\WinSxS</div>
+                <div>DriverStore</div>
+                <div>Registry hives</div>
+                <div>pagefile.sys · hiberfil.sys</div>
+                <div>C:\Windows\Fonts</div>
+              </div>
+              <div class="note-box">ⓘ Za WinSxS koristi ugrađeni Windows alat (DISM). DeepCleaner ovdje ništa ne briše.</div>
+            </div>
+          </div>
+          <div class="footer-bar"><span class="muted">5 kategorija · <b style="color:var(--text)">2.0 GB</b></span><span class="btn primary">Očisti cache</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 09 · IMAGE SCANNER -->
+<section class="slide" aria-label="Skener slika">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">08 · Skener slika</span>
+      <h2 class="reveal" style="--d:1">Slične slike, <span class="grad">najbolja ostaje</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2">Slike su grupisane po <b>vizuelnoj sličnosti</b> (perceptualni hash), ne samo po imenu.</li>
+        <li class="reveal" style="--d:3"><b style="color:var(--cyan)">BOLJA</b> se bira po rezoluciji, oštrini, šumu i kompresiji.</li>
+        <li class="reveal" style="--d:4"><b style="color:var(--magenta)">LOŠIJE</b> su automatski označene za brisanje.</li>
+        <li class="reveal" style="--d:5">Prag sličnosti je podesiv: od tačnih duplikata do „sličnih“ slika.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup skenera sličnih slika">
+        <div class="win-bar"><i></i><i></i><i></i><span>DeepCleaner — Slike</span></div>
+        <div class="pane">
+          <div class="img-layout">
+            <div class="filters">
+              <div><div class="lbl">Prag sličnosti</div><div class="slider"><i></i></div><div class="row-flex" style="justify-content:space-between"><small class="muted">Slično</small><b class="mono">90%</b></div></div>
+              <div><div class="lbl">Prikaži</div><div class="row-flex"><span class="chip on">Duplikati</span><span class="chip on">Slične</span><span class="chip">Mutne</span></div></div>
+              <div class="grp-list"><div class="lbl">Grupe · 47</div><div>Grupa 2 <span class="mono">3</span></div><div class="on">Grupa 3 <span class="mono">4</span></div><div>Grupa 4 <span class="mono">2</span></div><div>Grupa 5 <span class="mono">5</span></div></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:.9em;min-width:0">
+              <div class="pane-title"><h4 style="font-size:1.3em">Grupa 3 · Zalazak, Mostar</h4><span class="chip on">96% sličnost</span></div>
+              <div class="imgs">
+                <div class="thumb best"><span class="badge b">★ BOLJA</span><span class="cb"></span><div class="photo"></div><div class="meta"><span>4032×3024</span><span>4.2 MB</span></div><div class="score">Oštrina<div class="bar"><i style="width:94%"></i></div><b class="mono">94</b></div></div>
+                <div class="thumb bad"><span class="badge l">LOŠIJA</span><span class="cb on"></span><div class="photo worse"></div><div class="meta"><span>1600×1200</span><span>380 KB</span></div><div class="score">Oštrina<div class="bar"><i style="width:61%"></i></div><b class="mono">61</b></div></div>
+                <div class="thumb bad"><span class="badge l">LOŠIJA</span><span class="cb on"></span><div class="photo worse2"></div><div class="meta"><span>1280×960</span><span>210 KB</span></div><div class="score">Oštrina<div class="bar"><i style="width:43%"></i></div><b class="mono">43</b></div></div>
+                <div class="thumb bad"><span class="badge l">LOŠIJA</span><span class="cb on"></span><div class="photo worse"></div><div class="meta"><span>4032×3024</span><span>3.9 MB</span></div><div class="score">Oštrina<div class="bar"><i style="width:72%"></i></div><b class="mono">72</b></div></div>
+              </div>
+              <div class="footer-bar"><span class="row-flex"><span class="btn ghost">Uporedi</span><span class="btn ghost">Auto-odaberi lošije</span></span><span class="btn danger">Obriši lošije (3) · 4.5 MB</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · IMAGE COMPARE -->
+<section class="slide" aria-label="Poređenje slika">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">09 · Poređenje</span>
+      <h2 class="reveal" style="--d:1">Zašto je jedna <span class="grad">bolja od druge</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2"><b>Klizač</b> preko slike za direktno poređenje detalja.</li>
+        <li class="reveal" style="--d:3">Tabela objašnjava odluku. Pobjednik svake metrike je istaknut.</li>
+        <li class="reveal" style="--d:4">Korisnik može <b>zamijeniti izbor</b> ili zadržati obje.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup poređenja dvije slike">
+        <div class="win-bar"><i></i><i></i><i></i><span>Uporedi · IMG_2041.jpg vs IMG-20240611-WA0007.jpg</span></div>
+        <div class="pane">
+          <div class="cmp">
+            <div style="display:flex;flex-direction:column;gap:.8em;min-width:0">
+              <div class="cmp-view">
+                <div class="photo"></div>
+                <div class="half"><div class="photo worse2"></div></div>
+                <div class="handle"></div>
+                <span class="tag l">★ BOLJA</span><span class="tag r">LOŠIJA</span>
+              </div>
+              <div class="row-flex"><span class="btn ghost">⇄ Zamijeni izbor</span><span class="btn ghost">Zadrži obje</span><span class="btn danger" style="margin-left:auto">Obriši lošiju</span></div>
+            </div>
+            <div class="metrics-col" style="display:flex;flex-direction:column;gap:.8em;min-width:0">
+              <div class="tbl metrics">
+                <div class="tr head"><span>Metrika</span><span>Lijevo</span><span>Desno</span></div>
+                <div class="tr"><span>Rezolucija</span><span class="w">12 MP</span><span class="x">1.2 MP</span></div>
+                <div class="tr"><span>Oštrina</span><span class="w">94</span><span class="x">43</span></div>
+                <div class="tr"><span>Šum</span><span class="w">nizak</span><span class="x">visok</span></div>
+                <div class="tr"><span>JPEG kvalitet</span><span class="w">q95</span><span class="x">q70</span></div>
+                <div class="tr"><span>EXIF</span><span class="w">original</span><span class="x">nema</span></div>
+                <div class="tr"><span>Izvor</span><span>Kamera</span><span>WhatsApp</span></div>
+              </div>
+              <div class="verdict"><small class="muted">Preporuka</small><b>Zadrži lijevu</b><small class="muted">Pobjeđuje u 5 od 6 metrika</small></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 · SAFETY -->
+<section class="slide" aria-label="Potvrda i karantin">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">10 · Sigurnosna mreža</span>
+      <h2 class="reveal" style="--d:1">Svaka greška se može <span class="grad">poništiti</span></h2>
+    </header>
+    <div class="split">
+      <ul class="notes">
+        <li class="reveal" style="--d:2">Zadana opcija je <b>karantin</b>: fajlovi se čuvaju 30 dana.</li>
+        <li class="reveal" style="--d:3">Trajno brisanje je jasno odvojeno i <b>crveno</b>.</li>
+        <li class="reveal" style="--d:4">Nakon akcije se pojavi obavještenje sa <b>Poništi</b>.</li>
+        <li class="reveal" style="--d:5"><b>Historija</b> bilježi svaku akciju: šta, kada i odakle.</li>
+      </ul>
+      <div class="mock reveal" style="--d:3" role="img" aria-label="Mockup dijaloga za potvrdu brisanja">
+        <div class="win-bar"><i></i><i></i><i></i><span>DeepCleaner</span></div>
+        <div class="modal-stage">
+          <div class="modal">
+            <h4>Ukloniti 14 stavki?</h4>
+            <span class="muted">Ukupno <b style="color:var(--text)">6.3 GB</b> iz modula Veliki fajlovi i Slike.</span>
+            <div class="opt on"><span class="radio"></span><div><b>Premjesti u karantin</b><small>Može se vratiti 30 dana. Preporučeno.</small></div></div>
+            <div class="opt"><span class="radio"></span><div><b style="color:#ffc2cc">Trajno obriši</b><small>Nepovratno. Prostor se oslobađa odmah.</small></div></div>
+            <div class="row-flex"><span class="cb on"></span><span>Kreiraj tačku vraćanja sistema</span></div>
+            <div class="row-flex" style="justify-content:flex-end"><span class="btn ghost">Otkaži</span><span class="btn primary">U karantin</span></div>
+          </div>
+          <div class="toast"><span>✓ 14 stavki premješteno u karantin</span><u>Poništi</u></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 · DESIGN SYSTEM -->
+<section class="slide" aria-label="Dizajn sistem">
+  <div class="slide-content">
+    <header class="slide-head">
+      <span class="kicker reveal">11 · Dizajn sistem</span>
+      <h2 class="reveal" style="--d:1">Boje nose <span class="grad">značenje</span></h2>
+    </header>
+    <div class="ds">
+      <article class="card reveal" style="--d:2">
+        <h3>Paleta</h3>
+        <div class="swatches">
+          <div class="sw" style="background:var(--bg)">Bg</div>
+          <div class="sw" style="background:var(--panel-2)">Panel</div>
+          <div class="sw" style="background:var(--cyan);color:#04121a">Bolja</div>
+          <div class="sw" style="background:var(--magenta)">Lošija</div>
+          <div class="sw hide-sm" style="background:var(--lime);color:#04121a">Sigurno</div>
+          <div class="sw hide-sm" style="background:var(--amber);color:#04121a">Provjeri</div>
+          <div class="sw hide-sm" style="background:var(--red)">Trajno</div>
+          <div class="sw hide-sm" style="background:#9aa7c9;color:#04121a">Zaštićeno</div>
+        </div>
+      </article>
+      <article class="card reveal" style="--d:3">
+        <h3>Tipografija</h3>
+        <div class="ty-big">Clash Display</div>
+        <div class="ty-mid">Satoshi: tekst i interfejs</div>
+        <div class="mono muted">JetBrains Mono: putanje i veličine</div>
+        <div class="mono hide-sm" style="color:var(--cyan)">C:\Users\…\AppData · 412 MB</div>
+      </article>
+      <article class="card reveal" style="--d:4">
+        <h3>Komponente</h3>
+        <div class="comp"><span class="btn primary">Primarno</span><span class="btn ghost">Sekundarno</span><span class="btn danger">Karantin</span><span class="btn red">Trajno</span></div>
+        <div class="comp"><span class="chip safe">Sigurno</span><span class="chip warn">Provjeri</span><span class="chip lock">Zaštićeno</span><span class="chip on">Filter</span></div>
+        <div class="comp"><span class="badge b" style="padding:.25em .6em;border-radius:.35em;font-weight:700;font-size:.8em">★ BOLJA</span><span class="badge l" style="padding:.25em .6em;border-radius:.35em;font-weight:700;font-size:.8em">LOŠIJA</span><span class="cb on"></span><span class="cb"></span><span class="cb dis"></span></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- 13 · RESULT -->
+<section class="slide" aria-label="Rezultat">
+  <div class="slide-content">
+    <div class="result">
+      <div>
+        <span class="kicker reveal">12 · Ekran rezultata</span>
+        <div class="big-num reveal" style="--d:1"><span class="grad">12.4</span> <small>GB</small></div>
+        <p class="reveal muted" style="--d:2;margin-top:var(--element-gap)">oslobođeno u 4 modula · 0 sistemskih fajlova dirnuto</p>
+        <div class="row-flex reveal" style="--d:3;margin-top:var(--content-gap);font-size:var(--body-size)"><span class="btn primary">Gotovo</span><span class="btn ghost">Otvori karantin</span><span class="btn ghost">Zakaži sedmično</span></div>
+      </div>
+      <div class="breakdown">
+        <div class="r reveal" style="--d:3"><span>Programi</span><div class="bar"><i style="width:100%"></i></div><span class="num">4.1 GB</span></div>
+        <div class="r reveal" style="--d:4"><span>Veliki fajlovi</span><div class="bar"><i style="width:78%"></i></div><span class="num">3.2 GB</span></div>
+        <div class="r reveal" style="--d:5"><span>Slike</span><div class="bar"><i style="width:76%"></i></div><span class="num">3.1 GB</span></div>
+        <div class="r reveal" style="--d:6"><span>Windows cache</span><div class="bar"><i style="width:49%"></i></div><span class="num">2.0 GB</span></div>
+        <p class="reveal muted" style="--d:7;font-size:var(--small-size)">Karantin se automatski prazni nakon 30 dana.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<nav class="nav-dots" aria-label="Navigacija slajdova"></nav>
+<div class="counter" aria-live="polite"><b>01</b> / 13</div>
+<div class="keyboard-hint" aria-hidden="true">← → · Space · Home/End</div>
+
+<script>
+/**
+ * Presentation controller: keyboard, wheel, touch, dots, progress, reveal.
+ */
+class Deck {
+  constructor() {
+    this.slides = [...document.querySelectorAll('.slide')];
+    this.index = 0;
+    this.locked = false;
+    this.progress = document.querySelector('.progress');
+    this.counter = document.querySelector('.counter');
+    this.dots = document.querySelector('.nav-dots');
+    this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.buildDots();
+    this.observe();
+    this.bind();
+    this.update();
+  }
+
+  buildDots() {
+    this.slides.forEach((s, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-label', `Slajd ${i + 1}: ${s.getAttribute('aria-label') || ''}`);
+      b.addEventListener('click', () => this.go(i));
+      this.dots.appendChild(b);
+    });
+  }
+
+  // Track the visible slide and trigger reveal animations
+  observe() {
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          this.index = this.slides.indexOf(e.target);
+          this.update();
+        }
+      });
+    }, { threshold: 0.55 });
+    this.slides.forEach(s => io.observe(s));
+  }
+
+  bind() {
+    document.addEventListener('keydown', e => {
+      const next = ['ArrowDown', 'ArrowRight', 'PageDown', ' '];
+      const prev = ['ArrowUp', 'ArrowLeft', 'PageUp'];
+      if (next.includes(e.key)) { e.preventDefault(); this.go(this.index + 1); }
+      else if (prev.includes(e.key)) { e.preventDefault(); this.go(this.index - 1); }
+      else if (e.key === 'Home') { e.preventDefault(); this.go(0); }
+      else if (e.key === 'End') { e.preventDefault(); this.go(this.slides.length - 1); }
+    });
+
+    // One wheel gesture = one slide
+    window.addEventListener('wheel', e => {
+      e.preventDefault();
+      if (this.locked || Math.abs(e.deltaY) < 12) return;
+      this.go(this.index + (e.deltaY > 0 ? 1 : -1));
+    }, { passive: false });
+
+    let startY = 0, startX = 0;
+    window.addEventListener('touchstart', e => { startY = e.touches[0].clientY; startX = e.touches[0].clientX; }, { passive: true });
+    window.addEventListener('touchend', e => {
+      const dy = startY - e.changedTouches[0].clientY;
+      const dx = startX - e.changedTouches[0].clientX;
+      const d = Math.abs(dy) > Math.abs(dx) ? dy : dx;
+      if (Math.abs(d) > 50) this.go(this.index + (d > 0 ? 1 : -1));
+    }, { passive: true });
+  }
+
+  go(i) {
+    const n = Math.max(0, Math.min(this.slides.length - 1, i));
+    if (n === this.index && i !== n) return;
+    this.index = n;
+    this.locked = true;
+    this.slides[n].scrollIntoView({ behavior: this.reduced ? 'auto' : 'smooth' });
+    this.update();
+    setTimeout(() => { this.locked = false; }, 750);
+  }
+
+  update() {
+    const total = this.slides.length;
+    this.progress.style.width = `${((this.index + 1) / total) * 100}%`;
+    this.counter.innerHTML = `<b>${String(this.index + 1).padStart(2, '0')}</b> / ${total}`;
+    [...this.dots.children].forEach((d, i) => d.setAttribute('aria-current', i === this.index ? 'true' : 'false'));
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => new Deck());
+</script>
+</body>
+</html>

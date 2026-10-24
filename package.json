@@ -1,0 +1,21 @@
+{
+  "name": "deepcleaner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows cleaner: deep uninstall, large files, safe cache cleaning, similar image scanner",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/build-renderer.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "electron": "^45.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

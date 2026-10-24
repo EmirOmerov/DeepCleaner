@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="bs">
+<head>
+  <meta charset="UTF-8">
+  <!-- No remote code, no inline scripts. Inline style attributes are allowed for computed widths. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>DeepCleaner</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="logo">DeepCleaner</div>
+      <nav id="nav" aria-label="Moduli">
+        <button class="nav-item" data-view="dashboard">Kontrolna tabla</button>
+        <button class="nav-item" data-view="programs">Programi <em>uskoro</em></button>
+        <button class="nav-item" data-view="largefiles">Veliki fajlovi <em>uskoro</em></button>
+        <button class="nav-item" data-view="cache">Windows cache</button>
+        <button class="nav-item" data-view="images">Slike <em>uskoro</em></button>
+        <div class="nav-spacer"></div>
+        <button class="nav-item" data-view="quarantine">Karantin <em id="q-count"></em></button>
+        <button class="nav-item" data-view="history">Historija</button>
+      </nav>
+      <div class="side-foot" id="side-foot"></div>
+    </aside>
+    <main id="view" class="view" tabindex="-1"></main>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
