@@ -3,11 +3,14 @@ import type {
   DeepCleanerApi,
   FileCategory,
   HistoryEntry,
+  InstalledProgram,
   LargeFile,
+  Leftover,
   OpResult,
   QuarantineItem,
   SystemInfo,
   TargetScan,
+  UninstallOutcome,
 } from '../shared/api';
 import { daysUntil, escapeHtml as esc, formatBytes as fmt, formatDate } from '../shared/format';
 
@@ -40,7 +43,25 @@ const state = {
     cats: new Set<FileCategory>(),
     olderThanDays: 0,
   },
+  prog: {
+    list: null as InstalledProgram[] | null,
+    loading: false,
+    query: '',
+    sort: 'name' as 'name' | 'size' | 'date',
+    wizard: null as Wizard | null,
+  },
 };
+
+type WizardStep = 'confirm' | 'running' | 'still' | 'scanning' | 'leftovers' | 'done';
+interface Wizard {
+  program: InstalledProgram;
+  step: WizardStep;
+  outcome?: UninstallOutcome;
+  leftovers: Leftover[];
+  sel: Set<string>;
+  result?: OpResult;
+  error?: string;
+}
 
 const CATEGORY: Record<FileCategory, [label: string, color: string]> = {
   video: ['Video', '#ff3dbb'],
@@ -210,9 +231,12 @@ function renderDashboard() {
           <b>${fmt(qBytes)}</b>
           <span class="muted">${state.quarantine.length} stavki se može vratiti</span>
         </button>
-        ${['Programi', 'Slike']
-          .map((m) => `<div class="panel mod soon"><div class="t">${m} <span>uskoro</span></div><b>U izradi</b><span class="muted">Sljedeći modul</span></div>`)
-          .join('')}
+        <button class="panel mod" data-go="programs">
+          <div class="t">Programi <span>${state.prog.list ? `${state.prog.list.length} instalirano` : 'duboka deinstalacija'}</span></div>
+          <b>${state.prog.list ? fmt(state.prog.list.reduce((s, p) => s + p.sizeBytes, 0)) : '—'}</b>
+          <span class="muted">Deinstalacija + uklanjanje ostataka</span>
+        </button>
+        <div class="panel mod soon"><div class="t">Slike <span>uskoro</span></div><b>U izradi</b><span class="muted">Sljedeći modul</span></div>
       </div>
     </div>`;
 }
@@ -288,8 +312,8 @@ function renderQuarantine() {
         <label class="tr ${checked ? 'sel' : ''}">
           <input type="checkbox" class="cb" data-q="${esc(q.id)}" ${checked}>
           <span class="name"><b>${esc(name)}</b><small class="mono selectable" title="${esc(q.originalPath)}">${esc(q.originalPath)}</small></span>
-          <span><span class="chip mag">${esc(MODULE_LABEL[q.module] ?? q.module)}</span></span>
-          <span class="num">${fmt(q.bytes)}</span>
+          <span class="chips"><span class="chip mag">${esc(MODULE_LABEL[q.module] ?? q.module)}</span>${q.kind === 'registry' ? '<span class="chip">Registar</span>' : ''}</span>
+          <span class="num">${q.kind === 'registry' ? '.reg' : fmt(q.bytes)}</span>
           <span class="num muted">ističe za ${daysUntil(q.expiresAt)} d</span>
         </label>`;
     })
@@ -491,8 +515,237 @@ async function removeLargeFiles(permanent: boolean) {
   render();
 }
 
+// ---------- Programs / deep uninstall ----------
+
+const ICON_COLORS = ['#22e3ff', '#ff3dbb', '#8cff6b', '#ffb547', '#7b8cff', '#ff8a5c', '#c38bff', '#9aa7c9'];
+const LEFTOVER_GROUPS: Array<[Leftover['kind'][], string]> = [
+  [['folder', 'file'], 'Fajlovi i folderi'],
+  [['shortcut'], 'Prečice'],
+  [['registry'], 'Registar'],
+];
+
+function iconFor(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const letters = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2) || '?';
+  return `<span class="app-ico" style="background:${ICON_COLORS[h % ICON_COLORS.length]}">${esc(letters)}</span>`;
+}
+
+function sortedPrograms(): InstalledProgram[] {
+  const { list, query, sort } = state.prog;
+  const q = query.trim().toLowerCase();
+  const filtered = (list ?? []).filter(
+    (p) => !q || p.name.toLowerCase().includes(q) || p.publisher.toLowerCase().includes(q),
+  );
+  if (sort === 'size') return filtered.sort((a, b) => b.sizeBytes - a.sizeBytes);
+  if (sort === 'date') return filtered.sort((a, b) => (b.installDate ?? '').localeCompare(a.installDate ?? ''));
+  return filtered;
+}
+
+function programRows(): string {
+  const rows = sortedPrograms()
+    .map((p) => `
+      <div class="tr">
+        ${iconFor(p.name)}
+        <span class="name"><b>${esc(p.name)}</b><small>${esc(p.publisher || 'Nepoznat izdavač')}${p.version ? ' · ' + esc(p.version) : ''}</small></span>
+        <span class="chips"><span class="chip ${p.scope === 'machine' ? '' : 'cyan'}">${p.scope === 'machine' ? 'Svi korisnici' : 'Samo ti'}</span>${p.isMsi ? '<span class="chip">MSI</span>' : ''}</span>
+        <span class="num muted">${p.installDate ? p.installDate.split('-').reverse().join('.') : '—'}</span>
+        <span class="num">${p.sizeBytes ? fmt(p.sizeBytes) : '—'}</span>
+        <button class="btn danger sm" data-prog-uninstall="${esc(p.id)}">Duboko ukloni</button>
+      </div>`)
+    .join('');
+  return rows || '<div class="empty">Nijedan program ne odgovara pretrazi.</div>';
+}
+
+function renderPrograms() {
+  const pr = state.prog;
+  if (pr.wizard) return renderWizard(pr.wizard);
+  const title = head('Programi', 'Pronađi šta ti <span class="grad">više ne treba</span>',
+    `<button class="btn ghost" data-act="prog-refresh" ${pr.loading ? 'disabled' : ''}>Osvježi</button>`);
+  if (pr.loading || !pr.list) {
+    return `${title}<div class="scanning"><div class="radar"></div>Čitam listu instaliranih programa…</div>`;
+  }
+  const sortChips = ([['name', 'Ime'], ['size', 'Veličina'], ['date', 'Datum instalacije']] as const)
+    .map(([k, l]) => `<button class="chip ${pr.sort === k ? 'cyan' : ''}" data-prog-sort="${k}">${l}</button>`)
+    .join('');
+  const total = pr.list.reduce((s, p) => s + p.sizeBytes, 0);
+  return `${title}
+    <div class="toolbar">
+      <input class="search" type="search" placeholder="⌕ Pretraži programe ili izdavače…" value="${esc(pr.query)}" data-prog-search>
+      <div class="chips">${sortChips}</div>
+      <span class="muted">${pr.list.length} programa · ${fmt(total)}</span>
+    </div>
+    <div class="tbl t-prog">
+      <div class="tr head"><span></span><span>Program</span><span></span><span class="num">Instaliran</span><span class="num">Veličina</span><span></span></div>
+      <div id="prog-rows">${programRows()}</div>
+    </div>`;
+}
+
+function renderWizard(w: Wizard) {
+  const p = w.program;
+  const busy = w.step === 'running' || w.step === 'scanning';
+  const stepIdx = { confirm: 0, running: 0, still: 0, scanning: 1, leftovers: 1, done: 2 }[w.step];
+  const steps = ['Standardna deinstalacija', 'Ostaci', 'Uklanjanje']
+    .map((s, i) => `<div class="${i < stepIdx || w.step === 'done' ? 'done' : i === stepIdx ? 'now' : ''}">${i < stepIdx || w.step === 'done' ? '✓' : i + 1} · ${s}</div>`)
+    .join('');
+  const title = head('Duboka deinstalacija', esc(p.name), busy ? '' : '<button class="btn ghost" data-act="wiz-back">← Nazad</button>');
+  const needsUac = p.scope === 'machine' && !state.info?.isAdmin;
+
+  let body = '';
+  if (w.step === 'confirm') {
+    body = `<div class="panel wiz-panel">
+      <h2>Kako ovo radi</h2>
+      <ol>
+        <li>Pokreće se <b>originalni uninstaller</b> programa. Prati njegove korake.</li>
+        <li>Kad završi, DeepCleaner traži <b>ostatke</b>: foldere, prečice i ključeve registra.</li>
+        <li>Ti biraš šta se uklanja. Sve ide u <b>karantin</b>, a registar dobija .reg backup.</li>
+      </ol>
+      ${needsUac ? '<p class="banner-inline">⚠ Program je instaliran za sve korisnike, pa će Windows tražiti dozvolu (UAC).</p>' : ''}
+      <div class="btns"><button class="btn danger" data-act="wiz-run">Pokreni deinstalaciju</button></div>
+    </div>`;
+  } else if (w.step === 'running') {
+    body = '<div class="scanning"><div class="radar"></div>Čekam da se deinstalacija završi… Prati prozor uninstallera.</div>';
+  } else if (w.step === 'still') {
+    const o = w.outcome;
+    const why = o?.cancelled
+      ? 'Deinstalacija je otkazana (UAC dozvola nije data).'
+      : o?.error
+        ? `Uninstaller je javio grešku: <span class="mono">${esc(o.error)}</span>`
+        : 'Program je još uvijek instaliran. Neki uninstalleri završavaju tek kad zatvoriš njihov prozor ili nakon restarta.';
+    body = `<div class="panel wiz-panel warn">
+      <h2>Program nije uklonjen</h2><p>${why}</p>
+      <p class="muted">Ostaci se ne traže dok je program instaliran. Tako se ništa ne briše programu koji još radi.</p>
+      <div class="btns"><button class="btn ghost" data-act="wiz-recheck">Provjeri ponovo</button><button class="btn danger" data-act="wiz-run">Pokreni ponovo</button></div>
+    </div>`;
+  } else if (w.step === 'scanning') {
+    body = '<div class="scanning"><div class="radar"></div>Tražim ostatke u Program Files, AppData, Start meniju i registru…</div>';
+  } else if (w.step === 'leftovers') {
+    if (!w.leftovers.length) {
+      body = `<div class="empty"><h2>Nema ostataka</h2><p>${esc(p.name)} je čisto uklonjen.</p><br><button class="btn primary" data-act="wiz-done">Gotovo</button></div>`;
+    } else {
+      const groups = LEFTOVER_GROUPS.map(([kinds, label]) => {
+        const items = w.leftovers.filter((l) => kinds.includes(l.kind));
+        if (!items.length) return '';
+        const total = kinds.includes('registry')
+          ? `${items.length} ${items.length === 1 ? 'ključ' : 'ključeva'}`
+          : fmt(items.reduce((s, l) => s + l.bytes, 0));
+        return `<div class="tr grp"><span></span><span>${label}</span><span></span><span class="num">${total}</span></div>` +
+          items.map((l) => {
+            const checked = w.sel.has(l.path) ? 'checked' : '';
+            return `<label class="tr ${checked ? 'sel' : ''}">
+              <input type="checkbox" class="cb" data-left="${esc(l.path)}" ${checked}>
+              <span class="name"><b class="mono selectable">${esc(l.path)}</b><small>${esc(l.reason)}</small></span>
+              <span><span class="chip ${l.risk === 'safe' ? 'safe' : 'warn'}">${l.risk === 'safe' ? 'Sigurno' : 'Provjeri'}</span></span>
+              <span class="num">${l.kind === 'registry' ? '—' : fmt(l.bytes)}</span>
+            </label>`;
+          }).join('');
+      }).join('');
+      const sel = w.leftovers.filter((l) => w.sel.has(l.path));
+      body = `<div class="tbl t-left">${groups}</div>
+        <p class="muted hint">„Sigurno“ je unaprijed označeno. „Provjeri“ označi samo ako si siguran da pripada ovom programu.</p>
+        <div class="action-bar">
+          <span class="sum muted">${sel.length} odabrano · <b>${fmt(sel.reduce((s, l) => s + l.bytes, 0))}</b></span>
+          <div class="btns"><button class="btn ghost" data-act="wiz-done">Preskoči</button><button class="btn danger" data-act="wiz-remove" ${sel.length ? '' : 'disabled'}>Ukloni ostatke</button></div>
+        </div>`;
+    }
+  } else if (w.step === 'done') {
+    const r = w.result!;
+    body = `<div class="panel wiz-panel">
+      <h2>${esc(p.name)} je uklonjen</h2>
+      <p>Uklonjeno <b>${r.done.length}</b> ostataka (${fmt(r.bytes)}). Sve je u karantinu 30 dana, a ključevi registra imaju .reg backup.</p>
+      ${failureList(r.failed)}
+      <div class="btns"><button class="btn ghost" data-go="quarantine">Otvori karantin</button><button class="btn primary" data-act="wiz-done">Gotovo</button></div>
+    </div>`;
+  }
+  if (w.error) body = `<div class="banner"><span>⚠</span><span>${esc(w.error)}</span></div>` + body;
+  return `${title}<div class="stepper">${steps}</div>${body}`;
+}
+
+async function loadPrograms() {
+  state.prog.loading = true;
+  render();
+  try {
+    state.prog.list = await api.programs.list();
+  } catch (err) {
+    toast((err as Error).message, true);
+  } finally {
+    state.prog.loading = false;
+    render();
+  }
+}
+
+function setWizard(patch: Partial<Wizard>) {
+  Object.assign(state.prog.wizard!, patch);
+  render();
+}
+
+async function runUninstall() {
+  const w = state.prog.wizard!;
+  state.busy = true;
+  setWizard({ step: 'running', error: undefined });
+  try {
+    const outcome = await api.programs.uninstall(w.program.id);
+    if (outcome.stillInstalled) setWizard({ step: 'still', outcome });
+    else await findProgramLeftovers();
+  } catch (err) {
+    setWizard({ step: 'confirm', error: (err as Error).message });
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function recheckInstalled() {
+  const w = state.prog.wizard!;
+  if (await api.programs.isInstalled(w.program.id)) return toast('Program je i dalje instaliran.', true);
+  await findProgramLeftovers();
+}
+
+async function findProgramLeftovers() {
+  const w = state.prog.wizard!;
+  state.busy = true;
+  setWizard({ step: 'scanning' });
+  try {
+    const leftovers = await api.programs.leftovers(w.program.id);
+    setWizard({ step: 'leftovers', leftovers, sel: new Set(leftovers.filter((l) => l.risk === 'safe').map((l) => l.path)) });
+  } catch (err) {
+    setWizard({ step: 'still', error: (err as Error).message });
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function removeProgramLeftovers() {
+  const w = state.prog.wizard!;
+  const sel = w.leftovers.filter((l) => w.sel.has(l.path));
+  const ok = await modal({
+    title: `Ukloniti ${sel.length} ostataka?`,
+    body: `<p>Fajlovi i folderi idu u karantin (30 dana). Ključevi registra se prvo izvezu u .reg backup.</p>
+      <ul>${sel.slice(0, 8).map((l) => `<li class="mono">${esc(l.path)}</li>`).join('')}${sel.length > 8 ? `<li>… i još ${sel.length - 8}</li>` : ''}</ul>`,
+    confirm: 'Ukloni',
+    kind: 'danger',
+  });
+  if (!ok) return;
+  state.busy = true;
+  try {
+    const result = await api.programs.removeLeftovers(w.program.id, sel.map((l) => l.path));
+    setWizard({ step: 'done', result });
+  } catch (err) {
+    toast((err as Error).message, true);
+  } finally {
+    state.busy = false;
+    await refreshQuarantine();
+    render();
+  }
+}
+
+async function finishWizard() {
+  state.prog.wizard = null;
+  await loadPrograms();
+}
+
 const SOON: Record<string, [string, string]> = {
-  programs: ['Programi', 'Duboka deinstalacija: originalni uninstaller, zatim pregled ostataka (fajlovi, registar, servisi) sa nivoom rizika.'],
   images: ['Slike', 'Grupisanje sličnih slika, ocjena kvaliteta: BOLJA ostaje, LOŠIJE se mogu ukloniti.'],
 };
 
@@ -511,7 +764,7 @@ function render() {
     cache: renderCache,
     quarantine: renderQuarantine,
     history: renderHistory,
-    programs: () => renderSoon('programs'),
+    programs: renderPrograms,
     largefiles: renderLargeFiles,
     images: () => renderSoon('images'),
   };
@@ -524,6 +777,7 @@ async function go(view: View) {
   if (view === 'history') state.history = await api.history.list();
   render();
   viewEl.focus();
+  if (view === 'programs' && !state.prog.list && !state.prog.loading) await loadPrograms();
 }
 
 // ---------- Actions ----------
@@ -645,6 +899,19 @@ viewEl.addEventListener('click', (e) => {
   const goBtn = t.closest<HTMLElement>('[data-go]');
   if (goBtn) return void go(goBtn.dataset.go as View);
   if (handleLargeFilesClick(t, e)) return;
+
+  const uninstallBtn = t.closest<HTMLElement>('[data-prog-uninstall]');
+  if (uninstallBtn && !state.busy) {
+    const program = state.prog.list?.find((p) => p.id === uninstallBtn.dataset.progUninstall);
+    if (program) state.prog.wizard = { program, step: 'confirm', leftovers: [], sel: new Set() };
+    return render();
+  }
+  const sortBtn = t.closest<HTMLElement>('[data-prog-sort]');
+  if (sortBtn) {
+    state.prog.sort = sortBtn.dataset.progSort as typeof state.prog.sort;
+    return render();
+  }
+
   const act = t.closest<HTMLElement>('[data-act]')?.dataset.act;
   if (act === 'lf-cancel') return void api.largeFiles.cancel();
   if (!act || state.busy || state.lf.scanning) return;
@@ -657,6 +924,15 @@ viewEl.addEventListener('click', (e) => {
   }
   if (act === 'lf-quarantine') void removeLargeFiles(false);
   if (act === 'lf-delete') void removeLargeFiles(true);
+  if (act === 'prog-refresh') void loadPrograms();
+  if (act === 'wiz-back') {
+    state.prog.wizard = null;
+    render();
+  }
+  if (act === 'wiz-run') void runUninstall();
+  if (act === 'wiz-recheck') void recheckInstalled();
+  if (act === 'wiz-remove') void removeProgramLeftovers();
+  if (act === 'wiz-done') void finishWizard();
   if (act === 'scan') void scanCache();
   if (act === 'scan-go') void go('cache').then(scanCache);
   if (act === 'clean') void cleanCache();
@@ -667,12 +943,22 @@ viewEl.addEventListener('click', (e) => {
 viewEl.addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
   const d = input.dataset;
-  const setFor = d.cache ? state.cacheSel : d.q ? state.qSel : d.lf ? state.lf.sel : null;
-  const id = d.cache ?? d.q ?? d.lf;
+  const wiz = state.prog.wizard;
+  const setFor = d.cache ? state.cacheSel : d.q ? state.qSel : d.lf ? state.lf.sel : d.left && wiz ? wiz.sel : null;
+  const id = d.cache ?? d.q ?? d.lf ?? d.left;
   if (!setFor || !id) return;
   if (input.checked) setFor.add(id);
   else setFor.delete(id);
   render();
+});
+
+// Search filters rows in place so the input keeps focus while typing.
+viewEl.addEventListener('input', (e) => {
+  const input = e.target as HTMLInputElement;
+  if (input.dataset.progSearch === undefined) return;
+  state.prog.query = input.value;
+  const rows = document.getElementById('prog-rows');
+  if (rows) rows.innerHTML = programRows();
 });
 
 // ---------- Boot ----------

@@ -4,10 +4,20 @@ import * as path from 'node:path';
 import { describeFsError, pathSize } from '../fsutil';
 import type { PathGuard } from '../safety/pathGuard';
 import { normalizePath } from '../safety/pathGuard';
+import { checkRegistryKey } from '../safety/registryGuard';
 import type { HistoryLog } from './history';
+
+/** Registry operations, injected so the core stays testable without reg.exe. */
+export interface RegistryOps {
+  exportKey(key: string, file: string): Promise<void>;
+  deleteKey(key: string): Promise<void>;
+  importFile(file: string): Promise<void>;
+}
 
 export interface QuarantineItem {
   id: string;
+  /** 'registry' items store a .reg backup; restore re-imports it. Absent = file. */
+  kind?: 'file' | 'registry';
   originalPath: string;
   storedPath: string;
   isDirectory: boolean;
@@ -44,6 +54,7 @@ export interface QuarantineOptions {
   vaultDir: string;
   guard: PathGuard;
   history: HistoryLog;
+  registry?: RegistryOps;
   retentionDays?: number;
   now?: () => Date;
 }
@@ -112,6 +123,55 @@ export class Quarantine {
     return result;
   }
 
+  /**
+   * Remove registry keys reversibly: export to a .reg file in the vault, then
+   * delete. If the delete fails the backup is discarded and nothing changes.
+   */
+  async quarantineRegistry(keys: string[], module: string): Promise<OpResult> {
+    const result = emptyResult();
+    const manifest = this.load();
+    const reg = this.opts.registry;
+    for (const input of keys) {
+      const checked = checkRegistryKey(input);
+      if (!checked.ok) {
+        result.failed.push({ path: input, reason: checked.reason });
+        continue;
+      }
+      if (!reg) {
+        result.failed.push({ path: input, reason: 'registry access not available' });
+        continue;
+      }
+      const id = newId(this.now());
+      const dir = path.join(this.itemsDir, id);
+      const file = path.join(dir, 'backup.reg');
+      try {
+        await fs.promises.mkdir(dir, { recursive: true });
+        await reg.exportKey(checked.key, file);
+        await reg.deleteKey(checked.key);
+      } catch (err) {
+        await fs.promises.rm(dir, { recursive: true, force: true });
+        result.failed.push({ path: checked.key, reason: describeFsError(err) });
+        continue;
+      }
+      const at = this.now();
+      manifest.items.push({
+        id,
+        kind: 'registry',
+        originalPath: checked.key,
+        storedPath: file,
+        isDirectory: false,
+        bytes: 0,
+        module,
+        quarantinedAt: at.toISOString(),
+        expiresAt: new Date(at.getTime() + this.retentionDays * DAY_MS).toISOString(),
+      });
+      this.save(manifest);
+      result.done.push({ path: checked.key, bytes: 0, id });
+    }
+    this.log('quarantine', module, result);
+    return result;
+  }
+
   /** Put items back. If the original path is taken, restore next to it with a suffix. */
   async restore(ids: string[]): Promise<OpResult> {
     const result = emptyResult();
@@ -123,9 +183,15 @@ export class Quarantine {
         continue;
       }
       try {
-        const dest = await freeName(item.originalPath);
-        await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-        await moveAcrossVolumes(item.storedPath, dest);
+        let dest = item.originalPath;
+        if (item.kind === 'registry') {
+          if (!this.opts.registry) throw new Error('registry access not available');
+          await this.opts.registry.importFile(item.storedPath);
+        } else {
+          dest = await freeName(item.originalPath);
+          await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+          await moveAcrossVolumes(item.storedPath, dest);
+        }
         await fs.promises.rm(path.dirname(item.storedPath), { recursive: true, force: true });
         manifest.items = manifest.items.filter((i) => i.id !== id);
         this.save(manifest);

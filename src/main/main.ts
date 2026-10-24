@@ -4,11 +4,15 @@ import * as path from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { CacheCleaner } from '../core/cache/cacheCleaner';
 import { defaultCacheTargets } from '../core/cache/cacheTargets';
+import { pathSize } from '../core/fsutil';
 import { defaultScanRoots, LargeFileScanner } from '../core/largefiles/largeFiles';
 import { HistoryLog } from '../core/quarantine/history';
-import { Quarantine } from '../core/quarantine/quarantine';
+import { Quarantine, type OpResult } from '../core/quarantine/quarantine';
 import { createPathGuard, defaultGuardConfig } from '../core/safety/pathGuard';
-import { IPC, type SystemInfo } from '../shared/api';
+import { defaultLeftoverLocations, findLeftovers, type LeftoverDeps, type Leftover } from '../core/uninstall/leftovers';
+import { parsePrograms, parseUninstallCommand, type InstalledProgram } from '../core/uninstall/programs';
+import { listInstalledPrograms, regKeyExists, regListSubkeys, runUninstaller, windowsRegistry } from '../platform/windows';
+import { IPC, type SystemInfo, type UninstallOutcome } from '../shared/api';
 
 // --- Services (composition root) -------------------------------------------
 
@@ -18,12 +22,81 @@ const vaultDir = path.join(dataDir, 'Quarantine');
 // The app's own data folder is protected so no module can ever delete it.
 const guard = createPathGuard(defaultGuardConfig(process.env, [dataDir]));
 const history = new HistoryLog(path.join(dataDir, 'history.jsonl'));
-const quarantine = new Quarantine({ vaultDir, guard, history, retentionDays: 30 });
+const quarantine = new Quarantine({ vaultDir, guard, history, registry: windowsRegistry, retentionDays: 30 });
 const cache = new CacheCleaner(defaultCacheTargets(process.env), guard, history);
 const largeFiles = new LargeFileScanner();
 let largeFilesScan: AbortController | null = null;
 
 const MIN_LARGE_FILE = 10 * 1024 * 1024;
+
+// Deep uninstall state: the last program list, and the last leftover scan per program.
+let programs = new Map<string, InstalledProgram>();
+const leftoverScans = new Map<string, Leftover[]>();
+
+const leftoverDeps: LeftoverDeps = {
+  listDir: async (dir) => {
+    try {
+      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      return entries.filter((e) => !e.isSymbolicLink()).map((e) => ({ name: e.name, isDir: e.isDirectory() }));
+    } catch {
+      return [];
+    }
+  },
+  exists: async (p) => fs.existsSync(p),
+  size: (p) => pathSize(p).catch(() => 0),
+  listRegSubkeys: regListSubkeys,
+};
+
+function programById(id: unknown): InstalledProgram {
+  const p = typeof id === 'string' ? programs.get(id) : undefined;
+  if (!p) throw new Error('Program nije pronađen. Osvježi listu.');
+  return p;
+}
+
+async function uninstallProgram(id: unknown): Promise<UninstallOutcome> {
+  const p = programById(id);
+  const cmd = parseUninstallCommand(p);
+  if (!cmd) throw new Error('Program nema ispravnu komandu za deinstalaciju.');
+  const elevate = p.scope === 'machine' && !(await isAdmin());
+  const res = await runUninstaller(cmd.file, cmd.args, elevate);
+  const stillInstalled = await regKeyExists(p.registryKey);
+  if (!stillInstalled) {
+    history.append({ action: 'uninstall', module: 'uninstall', items: 1, bytes: p.sizeBytes, failed: 0, sample: [p.name] });
+  }
+  return { ...res, stillInstalled };
+}
+
+async function scanLeftovers(id: unknown): Promise<Leftover[]> {
+  const p = programById(id);
+  // Never look for leftovers of a program that is still installed (cancelled/failed uninstall).
+  if (await regKeyExists(p.registryKey)) {
+    throw new Error('Program je još instaliran. Ostaci se traže tek nakon uspješne deinstalacije.');
+  }
+  const others = [...programs.values()].filter((o) => o.id !== p.id);
+  const list = await findLeftovers(p, others, defaultLeftoverLocations(process.env), leftoverDeps);
+  leftoverScans.set(p.id, list);
+  return list;
+}
+
+/** Only items from the last leftover scan of this program are accepted. */
+async function removeLeftovers(id: unknown, value: unknown): Promise<OpResult> {
+  const p = programById(id);
+  const scanned = new Map((leftoverScans.get(p.id) ?? []).map((l) => [l.path.toLowerCase(), l]));
+  const wanted = stringArray(value);
+  const hits = wanted.map((w) => scanned.get(w.toLowerCase())).filter((l): l is Leftover => !!l);
+  const rejected = wanted.filter((w) => !scanned.has(w.toLowerCase()));
+
+  const files = await quarantine.quarantine(hits.filter((l) => l.kind !== 'registry').map((l) => l.path), 'uninstall');
+  const keys = await quarantine.quarantineRegistry(hits.filter((l) => l.kind === 'registry').map((l) => l.path), 'uninstall');
+  const merged: OpResult = {
+    done: [...files.done, ...keys.done],
+    failed: [...files.failed, ...keys.failed, ...rejected.map((r) => ({ path: r, reason: 'not from the last leftover scan' }))],
+    bytes: files.bytes + keys.bytes,
+  };
+  const removed = new Set(merged.done.map((d) => d.path.toLowerCase()));
+  leftoverScans.set(p.id, [...scanned.values()].filter((l) => !removed.has(l.path.toLowerCase())));
+  return merged;
+}
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -104,6 +177,15 @@ function registerIpc() {
     const hit = typeof p === 'string' ? largeFiles.find(p) : undefined;
     if (hit) shell.showItemInFolder(hit.path);
   });
+  ipcMain.handle(IPC.programsList, async () => {
+    const list = parsePrograms(await listInstalledPrograms());
+    programs = new Map(list.map((p) => [p.id, p]));
+    return list;
+  });
+  ipcMain.handle(IPC.programsUninstall, (_e, id: unknown) => uninstallProgram(id));
+  ipcMain.handle(IPC.programsIsInstalled, (_e, id: unknown) => regKeyExists(programById(id).registryKey));
+  ipcMain.handle(IPC.programsLeftovers, (_e, id: unknown) => scanLeftovers(id));
+  ipcMain.handle(IPC.programsRemoveLeftovers, (_e, id: unknown, paths: unknown) => removeLeftovers(id, paths));
   ipcMain.handle(IPC.quarantineList, () => quarantine.list());
   ipcMain.handle(IPC.quarantineRestore, (_e, ids: unknown) => quarantine.restore(stringArray(ids)));
   ipcMain.handle(IPC.quarantineRemove, (_e, ids: unknown) => quarantine.remove(stringArray(ids)));

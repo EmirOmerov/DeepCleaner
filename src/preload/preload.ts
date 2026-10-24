@@ -24,6 +24,13 @@ const api: DeepCleanerApi = {
     deletePermanently: (paths) => ipcRenderer.invoke(IPC.lfDelete, paths),
     reveal: (p) => ipcRenderer.invoke(IPC.lfReveal, p),
   },
+  programs: {
+    list: () => ipcRenderer.invoke(IPC.programsList),
+    uninstall: (id) => ipcRenderer.invoke(IPC.programsUninstall, id),
+    isInstalled: (id) => ipcRenderer.invoke(IPC.programsIsInstalled, id),
+    leftovers: (id) => ipcRenderer.invoke(IPC.programsLeftovers, id),
+    removeLeftovers: (id, paths) => ipcRenderer.invoke(IPC.programsRemoveLeftovers, id, paths),
+  },
   quarantine: {
     list: () => ipcRenderer.invoke(IPC.quarantineList),
     restore: (ids) => ipcRenderer.invoke(IPC.quarantineRestore, ids),

@@ -109,6 +109,8 @@ export function defaultGuardConfig(
       `${winDir}\\LiveKernelReports`,
       `${programData}\\Microsoft\\Windows\\WER\\ReportArchive`,
       `${programData}\\Microsoft\\Windows\\WER\\ReportQueue`,
+      // Shortcuts of uninstalled programs (the Programs folder itself stays protected).
+      `${programData}\\Microsoft\\Windows\\Start Menu\\Programs`,
     ],
     protectedExact: [
       programFiles,

@@ -9,8 +9,8 @@ A Windows 11 cleaner with four modules: deep uninstall, large files, safe cache 
 | 0. Safety core: PathGuard, quarantine (30 days), action history | ✅ |
 | 3. Windows cache, whitelist only | ✅ |
 | 2. Large files: treemap, filters, quarantine | ✅ |
-| 1. Deep uninstall + leftovers | ⏳ next |
-| 4. Similar images (better/worse) | ⏳ |
+| 1. Deep uninstall: native uninstaller, then leftovers (folders, shortcuts, registry with .reg backup) | ✅ |
+| 4. Similar images (better/worse) | ⏳ next |
 
 ## Running
 
@@ -28,6 +28,7 @@ To clean Windows Temp, Windows Update downloads and system dumps, launch the app
 - The cache cleaner only cleans locations from `src/core/cache/cacheTargets.ts`, and passes each of them to the guard as `allowRoots`. The renderer only sends category IDs and never sends paths.
 - Other modules delete into **quarantine** by default. Items can be restored for 30 days. The app's data folder is protected from all modules.
 - Scans never follow links. Locked files are skipped and reported.
+- Deep uninstall: leftovers are searched **only after** the program has disappeared from the registry, so a cancelled or failed uninstall deletes nothing. Matching is conservative: only an exact name match is pre-selected, and publisher folders such as "Common Files" or "Microsoft" are never deleted. Registry keys go through `RegistryGuard`, which only allows `HKCU/HKLM\Software\<Vendor>` and never Microsoft, Classes or Policies. A `.reg` backup is exported before each delete.
 
 ## Structure
 

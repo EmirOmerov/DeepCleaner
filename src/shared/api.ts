@@ -6,8 +6,30 @@ import type { CleanReport, TargetScan } from '../core/cache/cacheCleaner';
 import type { FileCategory, LargeFile, ScanProgress } from '../core/largefiles/largeFiles';
 import type { HistoryEntry } from '../core/quarantine/history';
 import type { OpResult, QuarantineItem } from '../core/quarantine/quarantine';
+import type { Leftover } from '../core/uninstall/leftovers';
+import type { InstalledProgram } from '../core/uninstall/programs';
 
-export type { CleanReport, FileCategory, HistoryEntry, LargeFile, OpResult, QuarantineItem, ScanProgress, TargetScan };
+export type {
+  CleanReport,
+  FileCategory,
+  HistoryEntry,
+  InstalledProgram,
+  LargeFile,
+  Leftover,
+  OpResult,
+  QuarantineItem,
+  ScanProgress,
+  TargetScan,
+};
+
+export interface UninstallOutcome {
+  exitCode: number;
+  /** User declined the UAC prompt. */
+  cancelled: boolean;
+  error?: string;
+  /** The program's registry entry still exists after the uninstaller exited. */
+  stillInstalled: boolean;
+}
 
 export interface DiskUsage {
   drive: string;
@@ -41,6 +63,16 @@ export interface DeepCleanerApi {
     deletePermanently(paths: string[]): Promise<OpResult>;
     reveal(path: string): Promise<void>;
   };
+  programs: {
+    list(): Promise<InstalledProgram[]>;
+    /** Runs the program's own uninstaller and waits for it. */
+    uninstall(id: string): Promise<UninstallOutcome>;
+    isInstalled(id: string): Promise<boolean>;
+    /** Refused while the program is still installed. */
+    leftovers(id: string): Promise<Leftover[]>;
+    /** Files go to quarantine; registry keys are backed up to .reg first. */
+    removeLeftovers(id: string, paths: string[]): Promise<OpResult>;
+  };
   quarantine: {
     list(): Promise<QuarantineItem[]>;
     restore(ids: string[]): Promise<OpResult>;
@@ -64,6 +96,11 @@ export const IPC = {
   lfQuarantine: 'largefiles:quarantine',
   lfDelete: 'largefiles:delete',
   lfReveal: 'largefiles:reveal',
+  programsList: 'programs:list',
+  programsUninstall: 'programs:uninstall',
+  programsIsInstalled: 'programs:is-installed',
+  programsLeftovers: 'programs:leftovers',
+  programsRemoveLeftovers: 'programs:remove-leftovers',
   quarantineList: 'quarantine:list',
   quarantineRestore: 'quarantine:restore',
   quarantineRemove: 'quarantine:remove',

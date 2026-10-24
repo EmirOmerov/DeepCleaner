@@ -124,6 +124,50 @@ describe('Quarantine', () => {
   });
 });
 
+describe('registry quarantine', () => {
+  /** Fake registry: a set of keys; export writes the key name into the .reg file. */
+  function fakeRegistry(keys: Set<string>, opts: { failDelete?: boolean } = {}) {
+    return {
+      exportKey: async (key: string, file: string) => fs.writeFileSync(file, key),
+      deleteKey: async (key: string) => {
+        if (opts.failDelete) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+        keys.delete(key);
+      },
+      importFile: async (file: string) => void keys.add(fs.readFileSync(file, 'utf8')),
+    };
+  }
+  const guard = () => createPathGuard(defaultGuardConfig(fakeEnv));
+
+  it('backs up, deletes and restores a key', async () => {
+    const keys = new Set(['HKCU\\Software\\VideoLAN\\VLC']);
+    const rq = new Quarantine({ vaultDir: vault, guard: guard(), history, registry: fakeRegistry(keys) });
+    const r = await rq.quarantineRegistry(['HKCU\\Software\\VideoLAN\\VLC'], 'uninstall');
+    expect(r.failed).toEqual([]);
+    expect(keys.size).toBe(0);
+    expect(rq.list()[0]).toMatchObject({ kind: 'registry', originalPath: 'HKCU\\Software\\VideoLAN\\VLC' });
+    await rq.restore([r.done[0].id!]);
+    expect(keys.has('HKCU\\Software\\VideoLAN\\VLC')).toBe(true);
+    expect(rq.list()).toEqual([]);
+  });
+
+  it('refuses protected keys without touching the registry', async () => {
+    const keys = new Set(['HKLM\\SOFTWARE\\Microsoft']);
+    const rq = new Quarantine({ vaultDir: vault, guard: guard(), history, registry: fakeRegistry(keys) });
+    const r = await rq.quarantineRegistry(['HKLM\\SOFTWARE\\Microsoft', 'HKCU\\Software'], 'uninstall');
+    expect(r.done).toEqual([]);
+    expect(keys.size).toBe(1);
+  });
+
+  it('discards the backup when the delete fails', async () => {
+    const keys = new Set(['HKLM\\Software\\Vendor\\App']);
+    const rq = new Quarantine({ vaultDir: vault, guard: guard(), history, registry: fakeRegistry(keys, { failDelete: true }) });
+    const r = await rq.quarantineRegistry(['HKLM\\Software\\Vendor\\App'], 'uninstall');
+    expect(r.failed[0].reason).toMatch(/access denied/);
+    expect(rq.list()).toEqual([]);
+    expect(keys.size).toBe(1);
+  });
+});
+
 describe('deletePermanently', () => {
   it('does not follow junctions inside a deleted folder', async () => {
     const outside = path.join(base, 'outside');
